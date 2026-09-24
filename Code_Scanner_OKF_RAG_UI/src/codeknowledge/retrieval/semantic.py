@@ -1,7 +1,10 @@
 """Semantic (vector) index over OKF documents backed by ChromaDB."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from codeknowledge.config.settings import VectorSettings
@@ -25,8 +28,27 @@ class SemanticHit:
     metadata: dict[str, Any]
 
 
+@dataclass
+class IndexRunStats:
+    total: int = 0
+    embedded: int = 0
+    unchanged: int = 0
+    removed: int = 0
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+STATE_FILE = "index_state.json"
+TEXT_HASH_KEY = "text_hash"
+GET_PAGE = 5000
+
+
+def _text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 class SemanticIndex:
-    def __init__(self, cfg: VectorSettings, embedder: EmbeddingProvider):
+    def __init__(self, cfg: VectorSettings, embedder: EmbeddingProvider, chunk_size: int = 128):
+        self.chunk_size = chunk_size  # documents embedded + saved per step (resume granularity)
         self.cfg = cfg
         self.embedder = embedder
         self._collection = None
@@ -52,12 +74,23 @@ class SemanticIndex:
             raise SemanticUnavailableError(f"Vector store unavailable: {exc}") from exc
         return self._collection
 
-    def indexed_bundle_hash(self) -> str | None:
+    # Index state lives in a small sidecar file rather than collection metadata: it is
+    # written only after a run completes, so an interrupted run is visibly "stale".
+    def _state_path(self) -> Path:
+        return Path(self.cfg.persist_directory) / STATE_FILE
+
+    def _read_state(self) -> dict[str, Any]:
         try:
-            meta = self._get_collection().metadata or {}
-        except SemanticUnavailableError:
-            return None
-        return meta.get("bundle_hash")
+            return json.loads(self._state_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def _write_state(self, state: dict[str, Any]) -> None:
+        self._state_path().parent.mkdir(parents=True, exist_ok=True)
+        self._state_path().write_text(json.dumps(state, indent=1), encoding="utf-8")
+
+    def indexed_bundle_hash(self) -> str | None:
+        return self._read_state().get("bundle_hash")
 
     def count(self) -> int:
         try:
@@ -65,40 +98,80 @@ class SemanticIndex:
         except SemanticUnavailableError:
             return 0
 
-    def rebuild(self, repo: OKFRepository) -> int:
-        """Drop and re-create the collection so deleted OKF docs never linger in the index."""
-        import chromadb  # noqa: F401  (ensures a clear error if chroma is missing)
+    def _existing_hashes(self) -> dict[str, str]:
+        col = self._get_collection()
+        out: dict[str, str] = {}
+        offset = 0
+        while True:
+            page = col.get(include=["metadatas"], limit=GET_PAGE, offset=offset)
+            ids = page.get("ids") or []
+            for eid, meta in zip(ids, page.get("metadatas") or []):
+                out[eid] = (meta or {}).get(TEXT_HASH_KEY, "")
+            if len(ids) < GET_PAGE:
+                return out
+            offset += GET_PAGE
 
+    def rebuild(self, repo: OKFRepository, progress=None, full: bool = False) -> IndexRunStats:
+        """Bring the vector index in line with the bundle, incrementally.
+
+        Why incremental: embedding a 10k+ document bundle on CPU takes a long time.
+        Each chunk is stored as soon as it is embedded and every entry records a hash
+        of its retrieval text, so an interrupted run resumes where it stopped and a
+        changed bundle only re-embeds changed documents. Documents that disappeared
+        from the bundle are deleted. `full=True` (or a different embedding model)
+        starts from an empty collection.
+        """
+        stats = IndexRunStats()
         with timed(logger, "vector_index"):
             self._get_collection()
-            try:
-                self._client.delete_collection(self.cfg.collection_name)
-            except Exception:
-                pass
-            self._collection = self._client.create_collection(
-                self.cfg.collection_name,
-                metadata={"hnsw:space": "cosine", "bundle_hash": repo.bundle_hash,
-                          "embedding_provider": self.embedder.name},
-            )
+            state = self._read_state()
+            model_id = f"{self.embedder.name}:{self.embedder.model}"
+            if full or (state and state.get("embedding") != model_id) or (not state and self._collection.count()):
+                # Vectors from another model are incomparable; unknown provenance is not trusted either.
+                try:
+                    self._client.delete_collection(self.cfg.collection_name)
+                except Exception:
+                    pass
+                self._collection = self._client.create_collection(
+                    self.cfg.collection_name, metadata={"hnsw:space": "cosine"})
+            self._write_state({**state, "embedding": model_id, "bundle_hash": None})
+
             rels = repo.relationships()
             by_doc: dict[str, list] = {}
             for r in rels:
                 by_doc.setdefault(r.source, []).append(r)
                 by_doc.setdefault(r.target, []).append(r)
             docs = repo.content_documents
-            texts = [build_retrieval_text(d, by_doc.get(d.id, [])) for d in docs]
-            if docs:
-                embeddings = self.embedder.embed(texts)
-                batch = 256
-                for i in range(0, len(docs), batch):
-                    self._collection.upsert(
-                        ids=[d.id for d in docs[i:i + batch]],
-                        embeddings=embeddings[i:i + batch],
-                        documents=texts[i:i + batch],
-                        metadatas=[build_metadata(d) for d in docs[i:i + batch]],
-                    )
-        logger.info("Indexed %d documents", len(docs))
-        return len(docs)
+            texts = {d.id: build_retrieval_text(d, by_doc.get(d.id, [])) for d in docs}
+            hashes = {eid: _text_hash(t) for eid, t in texts.items()}
+
+            existing = self._existing_hashes()
+            gone = [eid for eid in existing if eid not in hashes]
+            for i in range(0, len(gone), GET_PAGE):
+                self._collection.delete(ids=gone[i:i + GET_PAGE])
+            todo = [d for d in docs if existing.get(d.id) != hashes[d.id]]
+            stats.total, stats.removed = len(docs), len(gone)
+            stats.unchanged = len(docs) - len(todo)
+            if stats.unchanged:
+                logger.info("Vector index: %d unchanged documents kept, %d to embed", stats.unchanged, len(todo))
+
+            chunk = self.chunk_size
+            for i in range(0, len(todo), chunk):
+                part = todo[i:i + chunk]
+                embeddings = self.embedder.embed([texts[d.id] for d in part])
+                self._collection.upsert(
+                    ids=[d.id for d in part],
+                    embeddings=embeddings,
+                    documents=[texts[d.id] for d in part],
+                    metadatas=[{**build_metadata(d), TEXT_HASH_KEY: hashes[d.id]} for d in part],
+                )
+                stats.embedded += len(part)
+                if progress:
+                    progress(stats.unchanged + stats.embedded, stats.total)
+            self._write_state({"embedding": model_id, "bundle_hash": repo.bundle_hash, "documents": len(docs)})
+        logger.info("Indexed %d documents (embedded %d, unchanged %d, removed %d)",
+                    stats.total, stats.embedded, stats.unchanged, stats.removed)
+        return stats
 
     def search(self, query: str, top_k: int, entity_type: str | None = None,
                package: str | None = None) -> list[SemanticHit]:

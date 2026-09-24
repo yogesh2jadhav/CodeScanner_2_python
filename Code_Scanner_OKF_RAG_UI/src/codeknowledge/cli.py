@@ -29,11 +29,11 @@ def _cmd_ingest(args, settings) -> int:
     return 0 if result.report.errors == 0 else 1
 
 
-def _kb(settings, rebuild: bool = False, vectors: bool | None = None):
+def _kb(settings, rebuild: bool = False, vectors: bool | None = None, progress=None, full_vectors: bool = False):
     from codeknowledge.services.indexing_service import KnowledgeBase
 
     kb = KnowledgeBase(settings)
-    status = kb.load(rebuild=rebuild, rebuild_vectors=vectors)
+    status = kb.load(rebuild=rebuild, rebuild_vectors=vectors, progress=progress, full_vectors=full_vectors)
     if not status.ready:
         print(status.error, file=sys.stderr)
         return None
@@ -46,7 +46,10 @@ def _cmd_rebuild(args, settings) -> int:
     if args.input:
         settings.okf.source_dir = args.input
     print(f"OKF source: {Path(settings.okf.source_dir).resolve()}")
-    kb = _kb(settings, rebuild=True, vectors=not args.skip_vectors)
+    def progress(done: int, total: int) -> None:
+        print(f"\r  embedding documents: {done}/{total}", end="" if done < total else "\n", flush=True)
+
+    kb = _kb(settings, rebuild=True, vectors=not args.skip_vectors, progress=progress, full_vectors=args.full_vectors)
     if kb is None:
         return 1
     s = kb.status
@@ -62,6 +65,9 @@ def _cmd_rebuild(args, settings) -> int:
     print(f"Graph relationships: {s.graph_edges} (unresolved: {s.unresolved_relationships}, "
           f"external: {s.external_relationships})")
     print(f"Vector index: {s.vector_status} ({s.vector_documents} documents)")
+    if s.vector_run:
+        r = s.vector_run
+        print(f"  embedded: {r['embedded']}, unchanged (reused): {r['unchanged']}, removed: {r['removed']}")
     if s.error:
         print(f"Warning: {s.error}")
     print(f"Cache entries purged: {purged}")
@@ -141,6 +147,8 @@ def build_parser() -> argparse.ArgumentParser:
     r = sub.add_parser("rebuild", help="Rebuild graph and vector indexes from OKF")
     r.add_argument("--input", help="OKF directory (defaults to okf.source_dir)")
     r.add_argument("--skip-vectors", action="store_true", help="Rebuild the graph only")
+    r.add_argument("--full-vectors", action="store_true",
+                   help="Re-embed every document (default: only new/changed ones; interrupted runs resume)")
     r.set_defaults(func=_cmd_rebuild)
 
     s = sub.add_parser("search", help="Hybrid search (symbol + semantic + graph)")

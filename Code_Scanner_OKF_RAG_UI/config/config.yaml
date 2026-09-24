@@ -32,8 +32,9 @@ embedding:
   provider: ollama
   base_url: http://localhost:11434
   model: nomic-embed-text
-  timeout_seconds: 60
-  batch_size: 32
+  # Per-request timeout. CPU-only machines are slow; timed-out batches are split and retried.
+  timeout_seconds: 300
+  batch_size: 16
 
 retrieval:
   semantic_top_k: 10

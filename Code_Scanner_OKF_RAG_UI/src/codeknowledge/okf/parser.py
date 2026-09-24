@@ -19,6 +19,10 @@ from codeknowledge.models.entities import EntityType, OKFDocument, is_navigation
 from codeknowledge.models.relationships import Relationship, RelationType, parse_relation_type, parse_section_type
 from codeknowledge.utils.ids import id_from_path, normalize_id, simplify_params, strip_kind_prefix
 
+# libyaml's C loader parses frontmatter ~7x faster than the pure-Python one, which
+# dominates load time on large bundles; fall back when PyYAML was built without it.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 PATH_TARGET_PREFIX = "@path:"  # marks a relationship target that must be resolved via document path
 WIKI_LINK_PREFIX = "wiki:"  # marks a [[wiki]] link (target is an id, not a path)
 
@@ -329,7 +333,7 @@ def parse_document(text: str, rel_path: str) -> ParseResult:
     else:
         result.has_frontmatter = True
         try:
-            loaded = yaml.safe_load(fm_text)
+            loaded = yaml.load(fm_text, Loader=_YAML_LOADER)  # noqa: S506 - safe loader
         except yaml.YAMLError as exc:
             result.errors.append(f"Malformed YAML frontmatter: {str(exc).splitlines()[0]}")
             return result

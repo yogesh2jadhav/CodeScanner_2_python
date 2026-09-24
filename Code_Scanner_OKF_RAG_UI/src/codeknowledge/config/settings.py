@@ -53,8 +53,8 @@ class EmbeddingSettings(BaseModel):
     provider: str = "ollama"
     base_url: str = "http://localhost:11434"
     model: str = "nomic-embed-text"
-    timeout_seconds: float = 60
-    batch_size: int = 32
+    timeout_seconds: float = 300
+    batch_size: int = 16
 
 
 class RetrievalSettings(BaseModel):

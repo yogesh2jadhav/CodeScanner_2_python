@@ -48,6 +48,7 @@ class IndexStatus:
     external_relationships: int = 0
     vector_documents: int = 0
     vector_status: str = "unknown"  # ok | stale | empty | unavailable
+    vector_run: dict = field(default_factory=dict)
     bundle_hash: str | None = None
     ingestion: dict = field(default_factory=dict)
     timings_ms: dict = field(default_factory=dict)
@@ -67,7 +68,8 @@ class KnowledgeBase:
         self.flows: FlowBuilder | None = None
 
     # ------------------------------------------------------------------ loading
-    def load(self, rebuild: bool = False, rebuild_vectors: bool | None = None) -> IndexStatus:
+    def load(self, rebuild: bool = False, rebuild_vectors: bool | None = None, progress=None,
+             full_vectors: bool = False) -> IndexStatus:
         """Load OKF and indexes. Graph is rebuilt when the bundle changed; the vector
         index is only rebuilt when asked (embedding a large bundle is slow)."""
         timings = Timings()
@@ -101,7 +103,8 @@ class KnowledgeBase:
                 do_vectors = rebuild if rebuild_vectors is None else rebuild_vectors
                 if do_vectors:
                     with timed(logger, "vector_index", timings):
-                        semantic.rebuild(repo)
+                        run = semantic.rebuild(repo, progress, full=full_vectors)
+                    status.vector_run = {"embedded": run.embedded, "unchanged": run.unchanged, "removed": run.removed}
                     status.vector_status = "ok"
                 elif semantic.count() == 0:
                     status.vector_status = "empty"
@@ -113,7 +116,11 @@ class KnowledgeBase:
                 status.vector_documents = semantic.count()
             except (SemanticUnavailableError, EmbeddingUnavailableError, ValueError) as exc:
                 # Vector store problems must not take down graph/explorer features.
-                logger.exception("Semantic index unavailable")
+                if isinstance(exc, EmbeddingUnavailableError):
+                    # Expected operational condition (Ollama down): one clear line, no traceback.
+                    logger.error("Semantic index unavailable: %s", exc)
+                else:
+                    logger.exception("Semantic index unavailable")
                 status.vector_status = "unavailable"
                 status.error = f"Semantic index unavailable: {exc}"
                 semantic = None

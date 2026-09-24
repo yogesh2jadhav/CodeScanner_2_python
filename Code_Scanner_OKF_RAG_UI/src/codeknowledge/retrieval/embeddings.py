@@ -25,6 +25,7 @@ class EmbeddingUnavailableError(RuntimeError):
 
 class EmbeddingProvider(ABC):
     name: str = "base"
+    model: str = ""
 
     @abstractmethod
     def embed(self, texts: list[str]) -> list[list[float]]: ...
@@ -36,21 +37,51 @@ class EmbeddingProvider(ABC):
 class OllamaEmbeddingProvider(EmbeddingProvider):
     name = "ollama"
 
-    def __init__(self, base_url: str, model: str, timeout: float, batch_size: int = 32):
+    def __init__(self, base_url: str, model: str, timeout: float, batch_size: int = 16):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
-        self.batch_size = batch_size
+        self.batch_size = max(1, batch_size)
+
+    def _post(self, client: httpx.Client, batch: list[str]) -> list[list[float]]:
+        """Embed one batch; on a timeout, split it in half and retry.
+
+        Why: on CPU-only machines a batch of long documents can exceed the timeout.
+        Aborting would throw away a long indexing run, so the work is subdivided
+        until it fits; only a single document that still times out is an error.
+        """
+        try:
+            resp = client.post(f"{self.base_url}/api/embed",
+                               json={"model": self.model, "input": batch, "truncate": True})
+            resp.raise_for_status()
+            return resp.json()["embeddings"]
+        except httpx.TimeoutException:
+            if len(batch) == 1:
+                raise
+            mid = len(batch) // 2
+            logger.warning("Embedding batch of %d timed out after %ss; retrying as two halves",
+                           len(batch), self.timeout)
+            return self._post(client, batch[:mid]) + self._post(client, batch[mid:])
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         out: list[list[float]] = []
         try:
-            with httpx.Client(timeout=self.timeout) as client:
+            with httpx.Client(timeout=httpx.Timeout(self.timeout, connect=10)) as client:
                 for i in range(0, len(texts), self.batch_size):
-                    batch = texts[i:i + self.batch_size]
-                    resp = client.post(f"{self.base_url}/api/embed", json={"model": self.model, "input": batch})
-                    resp.raise_for_status()
-                    out.extend(resp.json()["embeddings"])
+                    out.extend(self._post(client, texts[i:i + self.batch_size]))
+        except httpx.ConnectError as exc:
+            raise EmbeddingUnavailableError(
+                f"Cannot reach Ollama at {self.base_url} ({exc}). Start Ollama (`ollama serve` or the Ollama app) "
+                f"and run `ollama pull {self.model}`, or rebuild with --skip-vectors.") from exc
+        except httpx.TimeoutException as exc:
+            raise EmbeddingUnavailableError(
+                f"Ollama embedding timed out after {self.timeout}s even for a single document (model={self.model}). "
+                "Increase embedding.timeout_seconds in config/config.yaml. Documents embedded so far are saved; "
+                "rerun the rebuild to continue.") from exc
+        except httpx.HTTPStatusError as exc:
+            hint = f" Run `ollama pull {self.model}`." if exc.response.status_code == 404 else ""
+            raise EmbeddingUnavailableError(
+                f"Ollama embedding failed (model={self.model}): HTTP {exc.response.status_code}.{hint}") from exc
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise EmbeddingUnavailableError(f"Ollama embedding failed (model={self.model}): {exc}") from exc
         return out
@@ -71,6 +102,7 @@ class HashEmbeddingProvider(EmbeddingProvider):
 
     def __init__(self, dim: int = 512):
         self.dim = dim
+        self.model = f"hash-{dim}"
 
     def _vec(self, text: str) -> list[float]:
         v = [0.0] * self.dim

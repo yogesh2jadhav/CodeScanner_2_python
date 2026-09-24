@@ -11,7 +11,9 @@ from codeknowledge.models.entities import OKFDocument
 from codeknowledge.models.relationships import Relationship
 from codeknowledge.utils.ids import short_name
 
-MAX_CONTENT_CHARS = 1500
+# Kept short: the header already lists names, summary and relationships, and long
+# inputs make CPU embedding slow (nomic-embed-text truncates beyond its context anyway).
+MAX_CONTENT_CHARS = 800
 
 
 def build_retrieval_text(doc: OKFDocument, relationships: list[Relationship]) -> str:

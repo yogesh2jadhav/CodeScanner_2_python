@@ -24,7 +24,7 @@ def test_full_pipeline(tmp_path):
     repo = OKFRepository(load)
     graph = GraphBuilder(NetworkXGraphStore()).build(repo)
     semantic = SemanticIndex(VectorSettings(persist_directory=str(tmp_path)), HashEmbeddingProvider())
-    assert semantic.rebuild(repo) == 24
+    assert semantic.rebuild(repo).total == 24
     symbols = SymbolIndex(repo)
 
     q = "Who calls CasingService.processClaims?"

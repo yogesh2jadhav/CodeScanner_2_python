@@ -145,3 +145,101 @@ def test_hybrid_degrades_without_vector_store(repo, symbols):
     res = hr.search(SearchRequest(query="CasingService"))
     assert res.hits[0].entity.id == f"{P}.CasingService"
     assert res.warnings and "unavailable" in res.warnings[0]
+
+
+# --- incremental / resumable indexing ---------------------------------------
+
+class CountingEmbedder(HashEmbeddingProvider):
+    def __init__(self, fail_after: int | None = None):
+        super().__init__()
+        self.embedded = 0
+        self.fail_after = fail_after
+
+    def embed(self, texts):
+        if self.fail_after is not None and self.embedded + len(texts) > self.fail_after:
+            raise EmbeddingUnavailableError("simulated outage")
+        self.embedded += len(texts)
+        return super().embed(texts)
+
+
+def test_incremental_rebuild_reuses_unchanged(repo, tmp_path):
+    cfg = VectorSettings(persist_directory=str(tmp_path))
+    first = SemanticIndex(cfg, CountingEmbedder())
+    run = first.rebuild(repo)
+    assert (run.total, run.embedded, run.unchanged) == (24, 24, 0)
+    again = SemanticIndex(cfg, CountingEmbedder())
+    run = again.rebuild(repo)
+    assert (run.embedded, run.unchanged) == (0, 24) and again.embedder.embedded == 0
+    assert again.indexed_bundle_hash() == repo.bundle_hash and again.count() == 24
+    run = SemanticIndex(cfg, CountingEmbedder()).rebuild(repo, full=True)
+    assert run.embedded == 24
+
+
+def test_interrupted_rebuild_resumes(tmp_path):
+    import shutil
+
+    from tests.conftest import SAMPLE_OKF
+
+    okf = tmp_path / "okf"
+    shutil.copytree(SAMPLE_OKF, okf)
+    repo = OKFRepository.from_directory(okf)
+    cfg = VectorSettings(persist_directory=str(tmp_path / "vec"))
+    # chunks of 8 and an outage after 10 documents: the first chunk is saved, then it fails
+    idx = SemanticIndex(cfg, CountingEmbedder(fail_after=10), chunk_size=8)
+    with pytest.raises(EmbeddingUnavailableError):
+        idx.rebuild(repo)
+    assert idx.count() == 8
+    assert idx.indexed_bundle_hash() is None  # interrupted run is not marked complete
+    resumed = SemanticIndex(cfg, CountingEmbedder(), chunk_size=8)
+    run = resumed.rebuild(repo)
+    assert (run.total, run.unchanged, run.embedded) == (24, 8, 16)
+    assert resumed.embedder.embedded == 16
+    assert resumed.indexed_bundle_hash() == repo.bundle_hash
+
+    # a changed and a deleted document: only the changed one is re-embedded
+    p = okf / "classes" / "ClaimValidator.md"
+    p.write_text(p.read_text().replace("Validates that a claim", "Checks that a claim"))
+    (okf / "methods" / "BaseService.log.md").unlink()
+    repo2 = OKFRepository.from_directory(okf)
+    run = SemanticIndex(cfg, CountingEmbedder()).rebuild(repo2)
+    assert run.removed == 1 and run.embedded >= 1 and run.unchanged >= 20
+    assert SemanticIndex(cfg, CountingEmbedder()).count() == 23
+
+
+def test_model_change_forces_full_reembed(repo, tmp_path):
+    cfg = VectorSettings(persist_directory=str(tmp_path))
+    SemanticIndex(cfg, HashEmbeddingProvider(dim=512)).rebuild(repo)
+    run = SemanticIndex(cfg, HashEmbeddingProvider(dim=256)).rebuild(repo)
+    assert run.embedded == 24 and run.unchanged == 0
+
+
+def test_ollama_timeout_splits_batch(monkeypatch):
+    import httpx
+
+    calls = []
+
+    def handler(request: httpx.Request):
+        import json as _json
+        batch = _json.loads(request.content)["input"]
+        calls.append(len(batch))
+        if len(batch) > 2:
+            raise httpx.ReadTimeout("slow", request=request)
+        return httpx.Response(200, json={"embeddings": [[0.1, 0.2]] * len(batch)})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    out = OllamaEmbeddingProvider("http://ollama", "m", timeout=1, batch_size=8).embed([f"t{i}" for i in range(8)])
+    assert len(out) == 8 and calls[:3] == [8, 4, 2]
+
+
+def test_ollama_single_doc_timeout_is_clear_error(monkeypatch):
+    import httpx
+
+    def handler(request):
+        raise httpx.ReadTimeout("slow", request=request)
+
+    real_client = httpx.Client
+    monkeypatch.setattr(httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    with pytest.raises(EmbeddingUnavailableError) as exc:
+        OllamaEmbeddingProvider("http://ollama", "m", timeout=1, batch_size=4).embed(["a", "b"])
+    assert "timeout_seconds" in str(exc.value) and "rerun" in str(exc.value)
