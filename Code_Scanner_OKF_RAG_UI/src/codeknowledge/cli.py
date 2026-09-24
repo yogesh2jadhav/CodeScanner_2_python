@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
+from pathlib import Path
 
 from codeknowledge.config.settings import load_settings
 from codeknowledge.okf.loader import OKFLoader, OKFSourceMissingError
@@ -13,12 +13,14 @@ from codeknowledge.utils.logging import setup_logging
 
 def _cmd_validate(args, settings) -> int:
     source = args.input or settings.okf.source_dir
+    print(f"OKF source: {Path(source).resolve()}")
     report = OKFValidator(source, settings.okf.required_metadata).validate()
     print(report.render(verbose=args.verbose))
     return 0 if report.passed else 1
 
 
 def _cmd_ingest(args, settings) -> int:
+    print(f"OKF source: {Path(args.input or settings.okf.source_dir).resolve()}")
     result = OKFLoader(args.input or settings.okf.source_dir).load()
     print(result.report.render())
     if args.verbose:
@@ -43,16 +45,22 @@ def _cmd_rebuild(args, settings) -> int:
 
     if args.input:
         settings.okf.source_dir = args.input
+    print(f"OKF source: {Path(settings.okf.source_dir).resolve()}")
     kb = _kb(settings, rebuild=True, vectors=not args.skip_vectors)
     if kb is None:
         return 1
     s = kb.status
+    if s.documents == 0:
+        print("No OKF documents found in that directory. Put the Java2OKF output there, set okf.source_dir in "
+              "config/config.yaml, set CODEKNOWLEDGE_OKF_SOURCE_DIR, or pass --input.", file=sys.stderr)
+        return 1
     purged = AnswerCache(settings).purge(keep_version=s.bundle_hash)
     print("Index rebuild")
     print("-------------")
     print(f"Documents: {s.documents}")
     print(f"Graph nodes: {s.graph_nodes}")
-    print(f"Graph relationships: {s.graph_edges} (unresolved: {s.unresolved_relationships})")
+    print(f"Graph relationships: {s.graph_edges} (unresolved: {s.unresolved_relationships}, "
+          f"external: {s.external_relationships})")
     print(f"Vector index: {s.vector_status} ({s.vector_documents} documents)")
     if s.error:
         print(f"Warning: {s.error}")

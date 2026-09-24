@@ -42,8 +42,9 @@ export const api = {
   tree: () => request<TreeNode[]>("/api/explorer/tree"),
   entity: (entityId: string) => request<EntityDetail>(`/api/entities/${id(entityId)}`),
   relationships: (entityId: string) => request<EntityRelationships>(`/api/entities/${id(entityId)}/relationships`),
-  subgraph: (entityId: string, depth: number, types: string[], direction = "both") => {
+  subgraph: (entityId: string, depth: number, types: string[], direction = "both", includeExternal = false) => {
     const q = new URLSearchParams({ depth: String(depth), direction });
+    if (includeExternal) q.set("include_external", "true");
     if (types.length) q.set("types", types.join(","));
     return request<SubGraphResponse>(`/api/graph/subgraph/${id(entityId)}?${q}`);
   },

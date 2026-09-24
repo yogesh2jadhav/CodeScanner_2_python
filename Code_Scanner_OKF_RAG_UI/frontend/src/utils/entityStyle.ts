@@ -7,6 +7,7 @@ export const TYPE_STYLES: Record<string, { chip: string; node: string; label: st
   method: { chip: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200", node: "#059669", label: "method" },
   field: { chip: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200", node: "#d97706", label: "field" },
   document: { chip: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200", node: "#6b7280", label: "doc" },
+  external: { chip: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300", node: "#a1a1aa", label: "external" },
   unresolved: { chip: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200", node: "#dc2626", label: "unresolved" },
 };
 
@@ -23,6 +24,7 @@ export const EDGE_COLORS: Record<string, string> = {
   CONTAINS: "#94a3b8",
   BELONGS_TO: "#94a3b8",
   REFERENCES: "#cbd5e1",
+  OVERRIDES: "#db2777",
 };
 
 export function shortName(id: string): string {

@@ -37,7 +37,7 @@ export function FlowDiagram({ flow, onNodeClick, height = 480 }: Props) {
             <div className="leading-tight" title={n.entity_id ?? n.label}>
               <div className="text-[9px] font-semibold uppercase tracking-wide opacity-60">
                 {n.kind === "condition" ? "if" : n.kind}
-                {n.status === "unresolved" ? " · unresolved" : ""}
+                {n.status === "unresolved" ? " · unresolved" : n.status === "external" ? " · external" : ""}
               </div>
               <div className={`text-[11px] font-medium ${clickable ? "text-blue-700 underline" : ""}`}>{n.label}</div>
             </div>
@@ -47,7 +47,8 @@ export function FlowDiagram({ flow, onNodeClick, height = 480 }: Props) {
           ...size(n),
           background: s.bg,
           color: "#0f172a",
-          border: `1.5px ${n.status === "unresolved" ? "dashed" : "solid"} ${s.border}`,
+          border: `1.5px ${n.status === "unresolved" || n.status === "external" ? "dashed" : "solid"} ${n.status === "external" ? "#a1a1aa" : s.border}`,
+          opacity: n.status === "external" ? 0.8 : 1,
           borderRadius: s.radius,
           padding: n.kind === "merge" ? 0 : "4px 8px",
           cursor: clickable ? "pointer" : "default",

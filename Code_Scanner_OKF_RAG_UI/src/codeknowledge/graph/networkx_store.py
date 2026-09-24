@@ -8,7 +8,7 @@ from typing import Any, Iterable
 
 import networkx as nx
 
-from codeknowledge.graph.store import Direction, Edge, GraphStore, SubGraph
+from codeknowledge.graph.store import LEAF_STATUSES, Direction, Edge, GraphStore, SubGraph
 
 GRAPH_FILE = "graph.json"
 
@@ -18,6 +18,7 @@ class NetworkXGraphStore(GraphStore):
         # MultiDiGraph: two entities can be linked by several relationship types
         # (e.g. CALLS and USES); a plain DiGraph would silently overwrite one.
         self.g = nx.MultiDiGraph()
+        self._path_ends: set[str] = set()
 
     def clear(self) -> None:
         self.g.clear()
@@ -60,14 +61,20 @@ class NetworkXGraphStore(GraphStore):
         return sorted(out, key=lambda e: (e.type, e.source, e.target))
 
     def _view(self, rel_types: set[str] | None) -> nx.MultiDiGraph:
-        if not rel_types:
-            return self.g
-        return nx.subgraph_view(self.g, filter_edge=lambda u, v, k: k in rel_types)
+        # Paths may end at, but never pass through, external/unresolved nodes.
+        def node_ok(n: str) -> bool:
+            return self.g.nodes[n].get("status") not in LEAF_STATUSES or n in self._path_ends
+
+        def edge_ok(u: str, v: str, k: str) -> bool:
+            return not rel_types or k in rel_types
+
+        return nx.subgraph_view(self.g, filter_node=node_ok, filter_edge=edge_ok)
 
     def shortest_path(self, source: str, target: str, rel_types: set[str] | None = None,
                       directed: bool = True) -> list[str] | None:
         if source not in self.g or target not in self.g:
             return None
+        self._path_ends = {source, target}
         view = self._view(rel_types)
         if not directed:
             view = view.to_undirected(as_view=True)
@@ -86,6 +93,8 @@ class NetworkXGraphStore(GraphStore):
         while queue:
             current = queue.popleft()
             if seen[current] >= depth:
+                continue
+            if current != node_id and self.g.nodes[current].get("status") in LEAF_STATUSES:
                 continue
             for e in self.edges(current, direction, rel_types):
                 edges.add(e)

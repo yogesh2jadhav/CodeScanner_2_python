@@ -85,7 +85,7 @@ class SemanticIndex:
             for r in rels:
                 by_doc.setdefault(r.source, []).append(r)
                 by_doc.setdefault(r.target, []).append(r)
-            docs = repo.documents
+            docs = repo.content_documents
             texts = [build_retrieval_text(d, by_doc.get(d.id, [])) for d in docs]
             if docs:
                 embeddings = self.embedder.embed(texts)

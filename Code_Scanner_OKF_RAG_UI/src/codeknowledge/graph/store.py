@@ -12,6 +12,11 @@ from typing import Any, Iterable, Literal
 
 Direction = Literal["out", "in", "both"]
 
+# Nodes that are never expanded during traversal. Why: an external type such as
+# java.lang.String is used by almost every class; walking *through* it would join
+# unrelated code into one giant neighbourhood.
+LEAF_STATUSES = frozenset({"external", "unresolved"})
+
 
 @dataclass(frozen=True)
 class Edge:

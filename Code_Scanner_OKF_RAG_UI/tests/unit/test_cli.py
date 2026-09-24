@@ -54,3 +54,23 @@ def test_cli_rebuild_search_ask(tmp_path, monkeypatch, capsys):
     assert "Category: CALLERS" in out and "ClaimService.process" in out and "Evidence:" in out
     assert main(["ask", "What does ClaimService do?", "--json"]) == 0
     assert '"llm_used": true' in capsys.readouterr().out
+
+
+def test_cli_rebuild_fails_on_empty_bundle(tmp_path, monkeypatch, capsys):
+    _env(tmp_path, monkeypatch)
+    empty = tmp_path / "okf"
+    empty.mkdir()
+    monkeypatch.setenv("CODEKNOWLEDGE_OKF_SOURCE_DIR", str(empty))
+    assert main(["rebuild"]) == 1
+    captured = capsys.readouterr()
+    assert f"OKF source: {empty.resolve()}" in captured.out
+    assert "No OKF documents found" in captured.err
+
+
+def test_cli_validate_verbose_is_capped(tmp_path, capsys):
+    for i in range(250):
+        (tmp_path / f"d{i}.md").write_text(f"---\nid: d{i}\ntype: class\ncalls: [ghost.X]\n---\n")
+    assert main(["validate", "--input", str(tmp_path), "-v"]) == 0
+    out = capsys.readouterr().out
+    assert "Issues (showing 200 of 250)" in out
+    assert "Most frequent unresolved targets:" in out and "250  ghost.X" in out

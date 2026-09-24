@@ -6,6 +6,7 @@ application:
     - http://127.0.0.1:5173
 
 okf:
+  # Java2OKF output folder (the one containing index.md). Windows: 'C:\path\to\output' in single quotes.
   source_dir: ./data/okf
   # Frontmatter keys every document must carry (validator reports missing ones).
   required_metadata: [id, type]

@@ -37,17 +37,23 @@ class GraphBuilder:
             for rel in repo.relationships():
                 for end in (rel.source, rel.target):
                     if not self.store.has_node(end):
-                        # Package nodes are synthesised from class metadata; anything else
-                        # missing is a placeholder for an unresolved reference.
+                        # Package nodes are synthesised from class metadata; external targets
+                        # (JDK/libraries) are leaves; anything else is an unresolved placeholder.
                         is_pkg = rel.type.value == "CONTAINS" and end == rel.source and rel.status == "resolved"
-                        self.store.add_node(
-                            end,
-                            label=end if is_pkg else short_name(end),
-                            type=EntityType.PACKAGE.value if is_pkg else EntityType.UNRESOLVED.value,
-                            package=end if is_pkg else None,
-                            status="resolved" if is_pkg else "unresolved",
-                        )
-                self.store.add_edge(rel.source, rel.target, rel.type.value, origin=rel.origin, status=rel.status)
+                        if is_pkg:
+                            kind, status, label = EntityType.PACKAGE.value, "resolved", end
+                        elif rel.status == "external":
+                            kind, status, label = EntityType.EXTERNAL.value, "external", short_name(end)
+                        else:
+                            kind, status, label = EntityType.UNRESOLVED.value, "unresolved", short_name(end)
+                        self.store.add_node(end, label=label, type=kind, package=end if is_pkg else None, status=status)
+                attrs = {"origin": rel.origin, "status": rel.status}
+                if rel.line is not None:
+                    attrs["line"] = rel.line
+                self.store.add_edge(rel.source, rel.target, rel.type.value, **attrs)
+        external = sum(1 for n in self.store.nodes() if n.get("status") == "external")
+        if external:
+            logger.info("External (JDK/library) nodes: %d", external)
         stats = self.store.stats()
         logger.info("Created %d nodes", stats["nodes"])
         logger.info("Created %d relationships", stats["edges"])

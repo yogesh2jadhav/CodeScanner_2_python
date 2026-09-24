@@ -13,7 +13,7 @@ from pathlib import PurePosixPath
 
 from codeknowledge.models.entities import EntityType
 from codeknowledge.okf.repository import OKFRepository
-from codeknowledge.utils.ids import normalize_id
+from codeknowledge.utils.ids import base_name, normalize_id, strip_kind_prefix
 
 # kind -> base score for an exact match on that kind
 KIND_SCORES = {
@@ -76,10 +76,15 @@ class SymbolIndex:
     def __init__(self, repo: OKFRepository):
         self.repo = repo
         self.entries: dict[str, list[tuple[str, str]]] = defaultdict(list)  # key -> [(entity_id, kind)]
-        for doc in repo.documents:
+        for doc in repo.content_documents:
             self._add(doc.id, doc.id, "fqn")
-            if doc.display_name() != doc.id:
-                self._add(doc.display_name(), doc.id, "qualified_name")
+            qualified = strip_kind_prefix(doc.id)
+            self._add(qualified, doc.id, "fqn")
+            self._add(base_name(doc.id), doc.id, "fqn")
+            display = doc.display_name()
+            if display != doc.id:
+                self._add(display, doc.id, "qualified_name")
+                self._add(display.split("(", 1)[0], doc.id, "qualified_name")
             if doc.type == EntityType.METHOD and doc.method_name:
                 self._add(doc.method_name, doc.id, "method_name")
             elif doc.type in (EntityType.CLASS, EntityType.INTERFACE, EntityType.ENUM):

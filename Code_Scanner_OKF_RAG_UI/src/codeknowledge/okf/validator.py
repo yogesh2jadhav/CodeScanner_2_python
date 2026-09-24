@@ -1,6 +1,7 @@
 """OKF bundle validation rules."""
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -28,6 +29,7 @@ class ValidationReport:
     broken_links: int = 0
     duplicate_ids: int = 0
     unresolved_relationships: int = 0
+    external_references: int = 0
     orphans: int = 0
     issues: list[ValidationIssue] = field(default_factory=list)
 
@@ -43,7 +45,7 @@ class ValidationReport:
     def passed(self) -> bool:
         return not self.errors
 
-    def render(self, verbose: bool = False) -> str:
+    def render(self, verbose: bool = False, max_issues: int = 200) -> str:
         lines = [
             "OKF Validation",
             "-------------",
@@ -52,15 +54,24 @@ class ValidationReport:
             f"Broken links: {self.broken_links}",
             f"Duplicate IDs: {self.duplicate_ids}",
             f"Unresolved relationships: {self.unresolved_relationships}",
+            f"External references (JDK/libraries): {self.external_references}",
             f"Orphan documents: {self.orphans}",
             f"Errors: {len(self.errors)}",
             f"Warnings: {len(self.warnings)}",
             f"Status: {'PASS' if self.passed else 'FAIL'}",
         ]
-        if verbose and self.issues:
+        if self.unresolved_relationships:
+            top = Counter(i.message.split("'")[1] for i in self.issues
+                          if i.rule == "unresolved_relationship" and "'" in i.message).most_common(10)
             lines.append("")
-            lines.append("Issues:")
-            for i in self.issues:
+            lines.append("Most frequent unresolved targets:")
+            lines.extend(f"  {count:6}  {target}" for target, count in top)
+        if verbose and self.issues:
+            # Errors first, and a cap: a large bundle can produce tens of thousands of warnings.
+            ordered = self.errors + self.warnings
+            lines.append("")
+            lines.append(f"Issues (showing {min(len(ordered), max_issues)} of {len(ordered)}):")
+            for i in ordered[:max_issues]:
                 lines.append(f"  [{i.level.upper()}] {i.rule} {i.path}: {i.message}")
         return "\n".join(lines)
 
@@ -95,7 +106,7 @@ class OKFValidator:
                 add("frontmatter_missing", "error", path, "Document has no YAML frontmatter")
 
         for doc in load.documents:
-            if not load.frontmatter_present.get(doc.path, True):
+            if not load.frontmatter_present.get(doc.path, True) or doc.navigation:
                 continue
             missing = [k for k in self.required_metadata if doc.metadata.get(k) in (None, "")]
             if missing:
@@ -131,6 +142,9 @@ class OKFValidator:
         connected: set[str] = set()
         for rel in rels:
             connected.update((rel.source, rel.target))
+            if rel.status == "external":
+                report.external_references += 1
+                continue
             if rel.status == "unresolved" and rel.origin != "body_link":
                 report.unresolved_relationships += 1
                 src_doc = repo.get(rel.source)
@@ -141,7 +155,7 @@ class OKFValidator:
 
         # Why orphans are warnings: an isolated doc is suspicious (e.g. a missed link)
         # but not invalid — a leaf utility class may legitimately have no edges.
-        for doc in repo.documents:
+        for doc in repo.content_documents:
             if doc.id not in connected and doc.path not in linked_paths and not doc.links:
                 report.orphans += 1
                 add("orphan_document", "warning", doc.path, "Document has no relationships or links")

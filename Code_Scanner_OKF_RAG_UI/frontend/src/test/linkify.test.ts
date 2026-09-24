@@ -27,6 +27,12 @@ describe("linkifyMarkdown", () => {
     expect(linkifyMarkdown(md, T)).toBe(md);
   });
 
+  it("links overloaded Java2OKF titles with parameter lists", () => {
+    const t = [{ id: "java-method:p.S.place(p.C,double)", names: ["S.place(C, double)", "S.place"] }];
+    expect(linkifyMarkdown("see S.place(C, double) and `S.place`", t)).toBe(
+      `see [S.place(C, double)](${entityHref("java-method:p.S.place(p.C,double)")}) and [\`S.place\`](${entityHref("java-method:p.S.place(p.C,double)")})`);
+  });
+
   it("round-trips ids through hrefs", () => {
     expect(parseEntityHref(entityHref("a.b.C$1"))).toBe("a.b.C$1");
     expect(parseEntityHref("https://x")).toBeNull();

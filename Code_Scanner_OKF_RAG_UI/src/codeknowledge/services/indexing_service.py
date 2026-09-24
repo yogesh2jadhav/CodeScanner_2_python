@@ -45,6 +45,7 @@ class IndexStatus:
     graph_nodes: int = 0
     graph_edges: int = 0
     unresolved_relationships: int = 0
+    external_relationships: int = 0
     vector_documents: int = 0
     vector_status: str = "unknown"  # ok | stale | empty | unavailable
     bundle_hash: str | None = None
@@ -128,6 +129,7 @@ class KnowledgeBase:
             status.documents = len(repo.documents)
             status.graph_nodes, status.graph_edges = stats["nodes"], stats["edges"]
             status.unresolved_relationships = sum(1 for r in rels if r.status == "unresolved")
+            status.external_relationships = sum(1 for r in rels if r.status == "external")
             status.bundle_hash = repo.bundle_hash
             r = repo.report
             status.ingestion = {"discovered": r.discovered, "valid": r.valid, "warnings": r.warnings,

@@ -14,8 +14,10 @@ FILTERS = {
     "uses": {"USES"},
     "contains": {"CONTAINS", "BELONGS_TO"},
     "references": {"REFERENCES"},
+    "overrides": {"OVERRIDES"},
 }
 MAX_SUBGRAPH_DEPTH = 6
+MAX_SUBGRAPH_NODES = 300
 
 
 def parse_types(types: str | None) -> set[str] | None:
@@ -43,11 +45,16 @@ class GraphService:
         return {"node": self._node(nid), "entity": entity_summary(self.kb.repo, self.kb.graph, nid).model_dump(mode="json"),
                 "degree": {"in": len(self.kb.graph.edges(nid, "in")), "out": len(self.kb.graph.edges(nid, "out"))}}
 
-    def neighbors(self, nid: str, direction: str = "both", types: str | None = None) -> dict:
+    def _visible(self, nid: str, include_external: bool) -> bool:
+        return include_external or (self.kb.graph.get_node(nid) or {}).get("status") != "external"
+
+    def neighbors(self, nid: str, direction: str = "both", types: str | None = None,
+                  include_external: bool = False) -> dict:
         self.kb.require_ready()
         if not self.kb.graph.has_node(nid):
             raise EntityNotFoundError(nid)
-        edges = self.kb.graph.edges(nid, direction, parse_types(types))
+        edges = [e for e in self.kb.graph.edges(nid, direction, parse_types(types))
+                 if self._visible(e.source, include_external) and self._visible(e.target, include_external)]
         ids = {nid} | {e.source for e in edges} | {e.target for e in edges}
         return {"nodes": [self._node(i) for i in sorted(ids)], "edges": [e.to_dict() for e in edges]}
 
@@ -65,10 +72,22 @@ class GraphService:
             edges.extend(e.to_dict() for e in es[:1])
         return {"found": True, "path": path, "nodes": [self._node(n) for n in path], "edges": edges}
 
-    def subgraph(self, nid: str, depth: int = 2, types: str | None = None, direction: str = "both") -> dict:
+    def subgraph(self, nid: str, depth: int = 2, types: str | None = None, direction: str = "both",
+                 include_external: bool = False, max_nodes: int = MAX_SUBGRAPH_NODES) -> dict:
         self.kb.require_ready()
         if not self.kb.graph.has_node(nid):
             raise EntityNotFoundError(nid)
         depth = max(0, min(depth, MAX_SUBGRAPH_DEPTH))  # bound work for huge graphs
         sg = self.kb.graph.subgraph(nid, depth, parse_types(types), direction)
-        return {"root": nid, "depth": depth, **sg.to_dict()}
+        # External (JDK/library) leaves are hidden by default: on a real bundle they
+        # outnumber project classes and bury the structure the user is looking for.
+        nodes = [n for n in sg.nodes if n["id"] == nid or self._visible(n["id"], include_external)]
+        hidden_external = len(sg.nodes) - len(nodes)
+        # Cap the node count (closest first) so the browser can render the result.
+        nodes.sort(key=lambda n: (n.get("depth", 0), n["id"]))
+        truncated = len(nodes) > max_nodes
+        nodes = nodes[:max_nodes]
+        keep = {n["id"] for n in nodes}
+        edges = [e.to_dict() for e in sg.edges if e.source in keep and e.target in keep]
+        return {"root": nid, "depth": depth, "nodes": nodes, "edges": edges,
+                "hidden_external": hidden_external, "truncated": truncated}

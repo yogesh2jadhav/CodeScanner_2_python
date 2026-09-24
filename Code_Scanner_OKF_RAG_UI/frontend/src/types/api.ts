@@ -1,5 +1,5 @@
 export type EntityType =
-  | "package" | "module" | "class" | "interface" | "enum" | "method" | "field" | "document" | "unresolved";
+  | "package" | "module" | "class" | "interface" | "enum" | "method" | "field" | "document" | "external" | "unresolved";
 
 export interface EntitySummary {
   id: string;
@@ -134,6 +134,8 @@ export interface SubGraphResponse {
   depth: number;
   nodes: GraphNode[];
   edges: GraphEdge[];
+  hidden_external: number;
+  truncated: boolean;
 }
 
 export interface EntityDetail {

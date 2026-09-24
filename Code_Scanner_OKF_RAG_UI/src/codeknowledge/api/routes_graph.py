@@ -16,9 +16,9 @@ def node(node_id: str, svc: GraphService = Depends(graph_service)) -> dict:
 
 @router.get("/api/graph/neighbors/{node_id:path}")
 def neighbors(node_id: str, direction: Literal["in", "out", "both"] = "both",
-              types: str | None = Query(None, description=TYPES_HELP),
+              types: str | None = Query(None, description=TYPES_HELP), include_external: bool = False,
               svc: GraphService = Depends(graph_service)) -> dict:
-    return svc.neighbors(node_id, direction, types)
+    return svc.neighbors(node_id, direction, types, include_external)
 
 
 @router.get("/api/graph/path")
@@ -30,5 +30,6 @@ def path(from_: str = Query(..., alias="from"), to: str = Query(...),
 
 @router.get("/api/graph/subgraph/{node_id:path}")
 def subgraph(node_id: str, depth: int = Query(2, ge=0, le=6), types: str | None = Query(None, description=TYPES_HELP),
-             direction: Literal["in", "out", "both"] = "both", svc: GraphService = Depends(graph_service)) -> dict:
-    return svc.subgraph(node_id, depth, types, direction)
+             direction: Literal["in", "out", "both"] = "both", include_external: bool = False,
+             max_nodes: int = Query(300, ge=1, le=2000), svc: GraphService = Depends(graph_service)) -> dict:
+    return svc.subgraph(node_id, depth, types, direction, include_external, max_nodes)

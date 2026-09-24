@@ -21,6 +21,11 @@ from codeknowledge.okf.repository import OKFRepository
 from codeknowledge.utils.ids import normalize_id, short_name
 
 LOOP_KEYS = ("loop", "for", "foreach", "while")
+
+
+def call_label(name: str) -> str:
+    """"A.run" -> "A.run()"; names that already carry a parameter list are kept."""
+    return name if name.endswith(")") else name + "()"
 STATEMENT_KEYS = ("statement", "assign", "set", "step")
 
 
@@ -54,7 +59,7 @@ class FlowBuilder:
         norm = normalize_id(str(target))
         eid = self.repo.resolve(norm, ctx.source_id)
         doc = self.repo.get(eid) if eid else None
-        label = (doc.display_name() + "()") if doc else f"{norm}()"
+        label = call_label(doc.display_name()) if doc else call_label(norm)
         return ctx.node("call", label, eid, "resolved" if eid else "unresolved")
 
     def _steps(self, ctx: _Ctx, steps: list[Any], entry: list[tuple[str, str | None]]) -> list[tuple[str, str | None]]:
@@ -158,8 +163,8 @@ class FlowBuilder:
         ctx = _Ctx(flow, self.repo, entity_id)
         if isinstance(steps, list) and steps:
             flow.availability = "explicit"
-            start = ctx.node("start", f"{title}()", entity_id)
-            ctx.line(f"{title}()")
+            start = ctx.node("start", call_label(title), entity_id)
+            ctx.line(call_label(title))
             ctx.depth = 1
             exits = self._steps(ctx, steps, [(start, None)])
             end = ctx.node("end", "end")
@@ -167,19 +172,43 @@ class FlowBuilder:
             # Nodes reached only via throw have no path to end; that is intentional.
             return flow
 
-        callees = []
-        if self.graph is not None:
-            callees = sorted({e.target for e in self.graph.edges(entity_id, "out", {"CALLS"})})
-        if callees:
+        call_edges = self.graph.edges(entity_id, "out", {"CALLS"}) if self.graph is not None else []
+        if call_edges:
             flow.availability = "call_sequence"
-            flow.notes.append("Control flow (order, conditions, loops) is not available in OKF; "
-                              "showing known calls only. Order is not implied.")
-            start = ctx.node("start", f"{title}()", entity_id)
+            with_lines = [e for e in call_edges if e.attrs.get("line") is not None]
+            # Java2OKF records the source line of each call, which gives a faithful textual
+            # order. It is still not control flow: branches and loops stay unknown.
+            ordered = sorted(call_edges, key=lambda e: (e.attrs.get("line") is None, e.attrs.get("line") or 0, e.target))
+            if with_lines:
+                flow.notes.append("Control flow (conditions, loops) is not available in OKF; calls are shown "
+                                  "in source-line order.")
+            else:
+                flow.notes.append("Control flow (order, conditions, loops) is not available in OKF; "
+                                  "showing known calls only. Order is not implied.")
+            start = ctx.node("start", call_label(title), entity_id)
+            ctx.line(call_label(title))
+            prev = start
+            for e in ordered:
+                node = self.graph.get_node(e.target) or {}
+                doc = self.repo.get(e.target)
+                label = (doc.display_name() if doc else node.get("label", short_name(e.target)))
+                label = call_label(label)
+                status = node.get("status", "resolved")
+                nid = ctx.node("call", label, e.target if doc else None, status)
+                line = e.attrs.get("line")
+                ctx.line(f"  CALL {label}" + (f"  (line {line})" if line else "") + ("  [external]" if status == "external" else ""))
+                if with_lines:
+                    ctx.edge(prev, nid, "next")
+                    prev = nid
+                else:
+                    ctx.edge(start, nid, "calls")
             end = ctx.node("end", "end")
-            for c in callees:
-                nid = self._call_node(ctx, c)
-                ctx.edge(start, nid, "calls")
-                ctx.edge(nid, end, None)
+            if with_lines:
+                ctx.edge(prev, end, None)
+            else:
+                for n in flow.nodes:
+                    if n.kind == "call":
+                        ctx.edge(n.id, end, None)
             return flow
 
         flow.notes.append("No control-flow or call information for this entity in the OKF bundle.")

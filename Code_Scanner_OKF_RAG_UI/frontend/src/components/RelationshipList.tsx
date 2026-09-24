@@ -33,6 +33,7 @@ export function RelationshipList({ rels }: { rels: EntityRelationships }) {
               <li key={`${e.source}-${e.target}-${e.type}`} className="flex items-center gap-2">
                 <EntityLink id={e.other.id} label={e.other.title} type={e.other.type} status={e.other.status} showType />
                 {e.status === "unresolved" && <span className="text-[10px] font-semibold text-red-600">unresolved</span>}
+                {e.status === "external" && <span className="text-[10px] font-semibold text-zinc-500">external</span>}
               </li>
             ))}
           </ul>

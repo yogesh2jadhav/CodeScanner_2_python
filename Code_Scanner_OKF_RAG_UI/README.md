@@ -120,8 +120,54 @@ Configuration lives in `config/config.yaml`. Environment variables override it u
 
 ## 6. How to provide OKF data
 
-Copy (or symlink) the Java2OKF output into `data/okf/`, or set `CODEKNOWLEDGE_OKF_SOURCE_DIR`. Nested directories
-are supported. Each `*.md` file is one document:
+Point the app at the Java2OKF output folder, the directory that contains `index.md`, `classes/`, `methods/` and so
+on. Pick one of these:
+
+- Set `okf.source_dir` in `config/config.yaml`. This is recommended because every command and the server then use
+  the same bundle. Single quotes keep Windows paths intact:
+  `source_dir: 'C:\Users\me\java2okf\output'`.
+- Set `CODEKNOWLEDGE_OKF_SOURCE_DIR` in the shell that runs the scripts and the server.
+- Copy or symlink the bundle into `data/okf/`.
+
+`--input` on `validate`, `ingest` or `rebuild` applies to that one command only. Every command prints the `OKF source`
+it used.
+
+### Java2OKF bundles (native format)
+
+The app follows java2okf `docs/okf-output.md`:
+
+| Java2OKF | How it is used |
+|---|---|
+| `id: java-method:com.x.OrderService.placeOrder(com.x.Customer,double)` | Canonical id. The parameter list is kept so overloads stay distinct. Search also matches `OrderService.placeOrder`, `placeOrder`, the qualified name, etc. |
+| `type: JavaClass / JavaInterface / JavaEnum / JavaRecord / JavaAnnotation / JavaMethod / JavaConstructor / JavaPackage` | Entity type |
+| `type: Index / Log` | Navigation pages: browsable, but they create no relationships and need no `id` |
+| `resource`, `java.lines: 17-24` | Source file and start/end line |
+| `java.declaringClass`, `java.qualifiedName`, `java.package`, `java.signature`, `## Signature` / `## Declaration` code | Class/method names, display name such as `OrderService.placeOrder(Customer, double)`, and signature |
+| `## Calls`, `## Called By` (method docs), `## Initializer Calls` | `CALLS`, with the source line from "— line N" |
+| `## Declared By`, `## Methods`, `## Constructors`, `## Nested Types`, `## Package`, `## Classes`/`Interfaces`/`Enums`/`Records` | `CONTAINS` |
+| `## Inheritance`/`Extends`, `## Subtypes` | `EXTENDS` |
+| `## Implements`, `## Extended / Implemented By` | `IMPLEMENTS` |
+| `## Overrides`, `## Overridden By` | `OVERRIDES` |
+| `## Uses`, `## Used By`, `## Parameters`, `## Returns`, `## Throws`, `## Instantiates`, `## Fields`, `## Annotations` | `USES` |
+| `## Dependencies`, `## Dependents`, `## Imports` | `DEPENDS_ON` |
+| `## References`, `## Referenced By` | `REFERENCES` |
+| `` `java.util.List` (external) ``, `(implicit)` | **External** reference (JDK/library): kept as a leaf node, not counted as a problem |
+| `` `x.save(..)` — UNRESOLVED ``, `AMBIGUOUS`, `(no document)` | **Unresolved**: kept and shown with `status: unresolved` |
+
+Class documents' aggregated `## Called By` sections are skipped, because method documents record the same calls
+more precisely.
+
+External nodes such as `java.lang.String` are **leaves**. Traversal, paths and graph expansion never pass through
+them. Without that, one shared JDK type would link every class in the project together. The Graph screen hides
+them by default; use "Show external" to see them. Java2OKF records no control flow, so the Flow view shows a
+method's calls in **source-line order** (`call_sequence`) and states that conditions and loops are unknown.
+
+A copy of the Java2OKF sample output is kept in `tests/fixtures/java2okf-sample/`. It is 31 documents and validates
+with 0 errors and 0 warnings.
+
+### Hand-written / generic OKF
+
+Other generators, or hand-written docs, can use the same concepts with plain keys:
 
 ```markdown
 ---
@@ -132,14 +178,14 @@ package: com.example.claim
 class_name: CasingService
 method_name: processClaims
 signature: public void processClaims(List<ClaimDataDTO> claims)
-source_file: src/main/java/com/example/claim/CasingService.java   # aliases: source, source_path, file
+source_file: src/main/java/com/example/claim/CasingService.java   # aliases: source, source_path, file, resource
 source_line: 42                                                    # aliases: line, start_line
 summary: Assigns the discharge date for each claim.
 relationships:                # mapping or list of {type, target}; also accepted as top-level keys
   calls: [com.example.claim.CasingService.getClaimData]
   uses: [com.example.claim.ClaimDataDTO]
-  # extends, implements, depends_on, called_by, implemented_by, contains, references …
-flow:                         # optional explicit control flow
+  # extends, implements, depends_on, called_by, implemented_by, contains, overrides, references …
+flow:                         # optional explicit control flow (enables IF/ELSE and loop diagrams)
   - call: getClaimData
   - if: checkConfiguration()
     then: [{call: applyConfiguredDischarge}]
@@ -151,19 +197,19 @@ flow:                         # optional explicit control flow
 # CasingService.processClaims
 
 ## Calls
-- [getClaimData](CasingService.getClaimData.md)   <!-- headings like "Calls", "Called By", "Implements" type the links below them -->
+- [getClaimData](CasingService.getClaimData.md)   <!-- section headings type the links below them -->
 ```
 
 - Relationship targets can be fully qualified, `Class.method`, or unqualified names. They are resolved against the
   source entity's own class/package first, then by a unique name suffix.
 - Targets that cannot be resolved are **kept** as `status: unresolved` nodes and edges. They are never dropped.
-- Links in other body text become `REFERENCES` edges. `CONTAINS` edges (package → class → method) are derived from
-  `package`/`class_name`.
-- If there is no `flow:` block, the flow view shows only the known calls, labelled `call_sequence` ("order not implied").
-  With no calls either, it shows `unavailable`. Control flow is never invented.
+- Links in other body text become `REFERENCES` edges. `CONTAINS` edges (package → class → method) are also derived
+  from `package`/`class_name`.
+- If there is no `flow:` block, the flow view shows only the known calls, labelled `call_sequence`. With no calls
+  either, it shows `unavailable`. Control flow is never invented.
 
-A golden sample bundle is in `tests/fixtures/sample-okf/`. It has 6 classes, 2 interfaces, 15 methods, inheritance,
-13 calls and 2 conditional flows.
+The golden sample for this format is in `tests/fixtures/sample-okf/`. It has 6 classes, 2 interfaces, 15 methods,
+inheritance, 13 calls and 2 conditional flows.
 
 Validate a bundle:
 
@@ -171,8 +217,10 @@ Validate a bundle:
 python scripts/validate_okf.py --input ./data/okf -v     # exit code 0 = pass, 1 = errors
 ```
 
-Rules checked: frontmatter exists, required metadata, malformed YAML, duplicate IDs, links resolve, referenced files
-exist, links escaping the root, plus unresolved relationships (warning) and orphan documents (warning).
+Rules checked: frontmatter exists, required metadata (not for Index/Log pages), malformed YAML, duplicate IDs, links
+resolve, referenced files exist, links escaping the root, plus unresolved relationships (warning) and orphan
+documents (warning). External references are counted but are not warnings. The summary lists the most frequent
+unresolved targets. `-v` prints the first 200 issues, errors first.
 
 ## 7. How to build indexes
 
@@ -258,9 +306,9 @@ Full OpenAPI docs are at `/docs`.
 | GET | `/api/entities/{id}/relationships` | Incoming and outgoing edges (with `status`) |
 | GET | `/api/explorer/tree` | Package → type → member tree |
 | GET | `/api/graph/node/{id}` | Node and degree |
-| GET | `/api/graph/neighbors/{id}` | `?direction=in\|out\|both&types=calls,inheritance` |
+| GET | `/api/graph/neighbors/{id}` | `?direction=in\|out\|both&types=calls,inheritance&include_external=false` |
 | GET | `/api/graph/path` | `?from=…&to=…&types=…&directed=true` |
-| GET | `/api/graph/subgraph/{id}` | `?depth=0..6&types=…&direction=…` |
+| GET | `/api/graph/subgraph/{id}` | `?depth=0..6&types=…&direction=…&include_external=false&max_nodes=300` |
 | GET | `/api/flow/{id}` | Flow nodes/edges, outline text, rule skeletons, call chains |
 
 Every response carries an `X-Request-ID` header. You can send your own. Each `/api/ask` logs `QUERY_RECEIVED`,
@@ -271,11 +319,12 @@ Every response carries an `X-Request-ID` header. You can send your own. Each `/a
 
 | Symptom | Fix |
 |---|---|
+| `rebuild` prints `Documents: 0` / "No OKF documents found" | The command used the default `./data/okf`. Set `okf.source_dir` (see section 6) so every command uses the same bundle |
 | `OKF source directory does not exist. Configure okf.source_dir.` (HTTP 503) | Put the bundle in `data/okf/` or set `CODEKNOWLEDGE_OKF_SOURCE_DIR`, then restart or call `/api/index/rebuild` |
 | `vectors: empty` / `stale` in the UI header | `python scripts/rebuild_indexes.py` |
 | `Semantic search unavailable` warning | Ollama is not running, or `nomic-embed-text` is not pulled. Symbol and graph search still work |
 | "LLM unavailable" in answers | `ollama serve` and `ollama pull qwen3:8b`, or set `CODEKNOWLEDGE_LLM_MODEL`. Facts and evidence are still returned |
-| Many `unresolved` relationships | Run `validate -v`. Targets must match an `id` or a unique `Class.member` suffix |
+| Many `unresolved` relationships | Run `validate`. The summary shows the most frequent targets. Targets must match an `id` or a unique `Class.member` suffix; Java2OKF `UNRESOLVED`/`AMBIGUOUS` items stay unresolved by design |
 | Frontend shows "Backend unreachable" | Start uvicorn on port 8000, or set `VITE_API_PROXY_TARGET` |
 | Stale answers | Answers are cached per (question, OKF hash, model, retrieval config) for `cache.ttl_seconds`. Use `--no-cache` or `use_cache:false` |
 

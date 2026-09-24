@@ -6,7 +6,7 @@ import { GraphPage } from "../pages/GraphPage";
 import { mockApi, renderWithProviders } from "./utils";
 
 const subgraph = {
-  root: "demo.A", depth: 2,
+  root: "demo.A", depth: 2, hidden_external: 4, truncated: false,
   nodes: [{ id: "demo.A", label: "A", type: "class" }, { id: "demo.B", label: "B", type: "class" }, { id: "demo.X", label: "X", type: "unresolved", status: "unresolved" }],
   edges: [{ source: "demo.A", target: "demo.B", type: "CALLS" }, { source: "demo.B", target: "demo.X", type: "CALLS", status: "unresolved" }],
 };
@@ -38,6 +38,9 @@ describe("GraphPage", () => {
     for (const f of ["Calls", "Dependencies", "Inheritance", "Implements", "Uses"]) {
       expect(screen.getByLabelText(f)).toBeInTheDocument();
     }
+    expect(screen.getByText("4 external (JDK/library) nodes hidden.")).toBeInTheDocument();
+    await userEvent.click(screen.getByLabelText("Show external (JDK / libraries)"));
+    await waitFor(() => expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("include_external=true"));
   });
 });
 

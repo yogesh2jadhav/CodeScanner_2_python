@@ -169,3 +169,24 @@ def test_llm_unavailable_other_features_work(tmp_path):
         body = c.post("/api/ask", json={"question": "What does ClaimService do?"}).json()
         assert body["llm_error"] and body["evidence"] and not body["llm_used"]
         assert c.get(f"/api/flow/{P}.CasingService.processClaims").status_code == 200
+
+
+def test_java2okf_bundle_graph_hides_external_by_default(tmp_path):
+    from tests.conftest import FIXTURES
+
+    app = create_app(make_settings(tmp_path, FIXTURES / "java2okf-sample"), llm=MockLLMProvider())
+    with TestClient(app) as c:
+        cls = "java-class:com.example.OrderService"
+        body = c.get(f"/api/graph/subgraph/{cls}", params={"depth": 1}).json()
+        assert body["hidden_external"] > 0
+        assert all(n.get("status") != "external" for n in body["nodes"])
+        body = c.get(f"/api/graph/subgraph/{cls}", params={"depth": 1, "include_external": True}).json()
+        assert any(n.get("status") == "external" for n in body["nodes"])
+        body = c.get(f"/api/graph/subgraph/{cls}", params={"depth": 2, "max_nodes": 3}).json()
+        assert len(body["nodes"]) == 3 and body["truncated"]
+        ent = c.get(f"/api/entities/{cls}").json()
+        assert ent["entity"]["title"] == "OrderService" and ent["signature"] == "public class OrderService"
+        rels = c.get(f"/api/entities/{cls}/relationships").json()
+        assert any(e["status"] == "external" and e["other"]["type"] == "external" for e in rels["outgoing"])
+        flow = c.get("/api/flow/java-method:com.example.OrderService.placeOrder(com.example.Customer,double)").json()
+        assert flow["availability"] == "call_sequence" and "line 22" in flow["text"]

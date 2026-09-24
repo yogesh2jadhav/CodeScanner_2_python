@@ -18,6 +18,7 @@ class EntityType(str, Enum):
     METHOD = "method"
     FIELD = "field"
     DOCUMENT = "document"
+    EXTERNAL = "external"  # resolved target outside the analysed sources (JDK, libraries)
     UNRESOLVED = "unresolved"
 
 
@@ -44,7 +45,26 @@ _TYPE_ALIASES: dict[str, EntityType] = {
     "field": EntityType.FIELD,
     "java_field": EntityType.FIELD,
     "property": EntityType.FIELD,
+    # Java2OKF document types
+    "javapackage": EntityType.PACKAGE,
+    "javamodule": EntityType.MODULE,
+    "javaclass": EntityType.CLASS,
+    "javarecord": EntityType.CLASS,
+    "javainterface": EntityType.INTERFACE,
+    "javaannotation": EntityType.INTERFACE,
+    "javaenum": EntityType.ENUM,
+    "javamethod": EntityType.METHOD,
+    "javaconstructor": EntityType.METHOD,
+    "javafield": EntityType.FIELD,
 }
+
+# Documents that only exist for navigation (Java2OKF Index/Log): they are loaded and
+# browsable but never become relationship hubs and need no id.
+NAVIGATION_TYPES = {"index", "log"}
+
+
+def is_navigation_type(raw: Any) -> bool:
+    return raw is not None and str(raw).strip().lower() in NAVIGATION_TYPES
 
 
 def normalize_entity_type(raw: Any) -> EntityType:
@@ -74,8 +94,14 @@ class OKFDocument(BaseModel):
     source_line: int | None = None
     summary: str | None = None
     signature: str | None = None
+    end_line: int | None = None
+    navigation: bool = False
+    qualified_name: str | None = None  # id without kind prefix, e.g. com.x.A.m(int)
+    display: str | None = None  # precomputed display name (overload-aware)
 
     def display_name(self) -> str:
+        if self.display:
+            return self.display
         if self.type == EntityType.METHOD and self.class_name and self.method_name:
             return f"{self.class_name}.{self.method_name}"
         return self.title

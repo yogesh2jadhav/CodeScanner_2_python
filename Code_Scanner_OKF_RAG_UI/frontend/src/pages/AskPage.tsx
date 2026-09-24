@@ -24,8 +24,11 @@ function linkTargets(r: AskResponse): LinkTarget[] {
     names.forEach((n) => n && !t.names.includes(n) && t.names.push(n));
     targets.set(id, t);
   };
-  r.evidence.forEach((e) => add(e.entity_id, e.title));
-  r.related_entities.forEach((e) => add(e.id, e.title));
+  // Also match names without their parameter list: an answer may say
+  // "OrderService.placeOrder" for "OrderService.placeOrder(Customer, double)".
+  const bare = (t: string) => t.replace(/\(.*\)$/, "");
+  r.evidence.forEach((e) => add(e.entity_id, e.title, bare(e.title)));
+  r.related_entities.forEach((e) => add(e.id, e.title, bare(e.title)));
   r.paths.flat().forEach((id) => add(id));
   return [...targets.values()];
 }

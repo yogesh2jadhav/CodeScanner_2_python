@@ -43,7 +43,7 @@ export function GraphView({ nodes, edges, rootId, selectedId, onSelect, onOpen, 
         ) },
         style: {
           width: W,
-          border: `${isSel || isRoot ? 2 : 1}px ${n.status === "unresolved" ? "dashed" : "solid"} ${s.node}`,
+          border: `${isSel || isRoot ? 2 : 1}px ${n.status === "unresolved" || n.status === "external" ? "dashed" : "solid"} ${s.node}`,
           borderRadius: 8,
           background: isRoot ? `${s.node}22` : "var(--ck-node-bg, #fff)",
           boxShadow: isSel ? `0 0 0 3px ${s.node}44` : undefined,

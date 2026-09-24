@@ -16,6 +16,7 @@ export const FILTERS = [
   { key: "inheritance", label: "Inheritance", type: "EXTENDS" },
   { key: "implements", label: "Implements", type: "IMPLEMENTS" },
   { key: "uses", label: "Uses", type: "USES" },
+  { key: "overrides", label: "Overrides", type: "OVERRIDES" },
   { key: "contains", label: "Contains", type: "CONTAINS" },
 ];
 
@@ -27,6 +28,7 @@ export function GraphPage() {
   const [filters, setFilters] = useState<string[]>(["calls", "dependencies", "inheritance", "implements", "uses"]);
   const [data, setData] = useState<SubGraphResponse | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [showExternal, setShowExternal] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const { open } = useEntityPanel();
@@ -34,11 +36,11 @@ export function GraphPage() {
   useEffect(() => {
     if (!root) return;
     setBusy(true); setError(null);
-    api.subgraph(root, depth, filters, direction)
+    api.subgraph(root, depth, filters, direction, showExternal)
       .then((d) => { setData(d); setSelected(root); })
       .catch((e) => { setError(e); setData(null); })
       .finally(() => setBusy(false));
-  }, [root, depth, filters, direction]);
+  }, [root, depth, filters, direction, showExternal]);
 
   const sel = useMemo(() => data?.nodes.find((n) => n.id === selected), [data, selected]);
   const selEdges = useMemo(() => data?.edges.filter((e) => e.source === selected || e.target === selected) ?? [], [data, selected]);
@@ -63,6 +65,10 @@ export function GraphPage() {
             </label>
           ))}
         </fieldset>
+        <label className="flex items-center gap-1 text-xs text-slate-500">
+          <input type="checkbox" checked={showExternal} onChange={(e) => setShowExternal(e.target.checked)} />
+          Show external (JDK / libraries)
+        </label>
       </div>
       <div className="relative grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[1fr_300px]">
         <div className="relative min-h-[400px]">
@@ -78,6 +84,8 @@ export function GraphPage() {
         </div>
         <aside className="min-h-0 overflow-auto border-l border-slate-200 p-4 text-sm dark:border-slate-800">
           {data && <p className="mb-3 text-xs text-slate-500">{data.nodes.length} nodes · {data.edges.length} edges · click to select, double-click to re-center</p>}
+          {data && data.hidden_external > 0 && <p className="mb-2 text-xs text-slate-500">{data.hidden_external} external (JDK/library) nodes hidden.</p>}
+          {data?.truncated && <p className="mb-2 text-xs text-amber-600">Graph truncated to the closest {data.nodes.length} nodes; lower the depth or add filters.</p>}
           {sel && (
             <div className="space-y-3">
               <div className="flex items-center gap-2"><TypeBadge type={sel.type} /><span className="font-mono font-semibold">{sel.label}</span></div>
