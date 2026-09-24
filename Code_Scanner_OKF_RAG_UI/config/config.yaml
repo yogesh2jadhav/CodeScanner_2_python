@@ -1,0 +1,53 @@
+application:
+  name: CodeKnowledgeAI
+  version: 0.1.0
+  cors_origins:
+    - http://localhost:5173
+    - http://127.0.0.1:5173
+
+okf:
+  source_dir: ./data/okf
+  # Frontmatter keys every document must carry (validator reports missing ones).
+  required_metadata: [id, type]
+
+vector:
+  provider: chroma
+  persist_directory: ./data/indexes/vector
+  collection_name: codeknowledge
+  top_k: 10
+
+graph:
+  provider: networkx
+  persist_directory: ./data/indexes/graph
+
+llm:
+  provider: ollama
+  base_url: http://localhost:11434
+  model: qwen3:8b
+  temperature: 0.1
+  timeout_seconds: 120
+
+embedding:
+  provider: ollama
+  base_url: http://localhost:11434
+  model: nomic-embed-text
+  timeout_seconds: 60
+  batch_size: 32
+
+retrieval:
+  semantic_top_k: 10
+  symbol_top_k: 10
+  graph_max_depth: 3
+  max_context_documents: 20
+  max_context_tokens: 6000
+  classifier_confidence_threshold: 0.6
+
+cache:
+  enabled: true
+  directory: ./data/cache
+  ttl_seconds: 86400
+
+logging:
+  level: INFO
+  file: ./logs/codeknowledge.log
+  config_file: ./config/logging.yaml
