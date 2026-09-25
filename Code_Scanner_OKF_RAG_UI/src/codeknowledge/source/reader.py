@@ -172,7 +172,7 @@ class SourceReader:
     def _read_lines(path: str, mtime: float) -> tuple[str, ...]:
         return tuple(Path(path).read_text(encoding="utf-8", errors="replace").splitlines())
 
-    def snippet(self, doc: OKFDocument) -> SourceSnippet | None:
+    def snippet(self, doc: OKFDocument, max_lines: int | None = None) -> SourceSnippet | None:
         path = self._resolve(doc.source_file or "")
         if path is None or doc.source_line is None:
             return None
@@ -191,10 +191,11 @@ class SourceReader:
         start = _leading_doc_start(lines, decl)
         end = min(end, len(lines) - 1)
         shown = lines[start:end + 1]
-        truncated = len(shown) > self.max_lines
+        limit = max_lines or self.max_lines
+        truncated = len(shown) > limit
         if truncated:
-            notes.append(f"Source truncated to the first {self.max_lines} lines.")
-            shown = shown[: self.max_lines]
+            notes.append(f"Source truncated to the first {limit} lines.")
+            shown = shown[:limit]
         return SourceSnippet(entity_id=doc.id, file=doc.source_file or "", start_line=start + 1,
                              decl_line=decl + 1, end_line=start + len(shown), lines=shown,
                              truncated=truncated, drifted=drifted, notes=notes)

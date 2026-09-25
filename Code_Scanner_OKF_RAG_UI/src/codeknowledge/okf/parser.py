@@ -44,7 +44,7 @@ _NON_REL_KEYS = set(_ID_KEYS) | set(_SOURCE_KEYS) | set(_LINE_KEYS) | {
 # Java2OKF bullet markers (see java2okf docs/okf-output.md "Rendering relationship targets").
 _EXTERNAL_MARKER_RE = re.compile(r"\((external|implicit)\)")
 _UNRESOLVED_MARKER_RE = re.compile(r"\b(UNRESOLVED|AMBIGUOUS)\b|\(no document\)")
-_LINE_NO_RE = re.compile(r"\bline (\d+)\b")
+_LINE_NO_RE = re.compile(r"\blines? (\d+(?:\s*,\s*\d+)*)")
 _LINES_RANGE_RE = re.compile(r"^\s*(\d+)\s*(?:[-–]\s*(\d+))?\s*$")
 
 
@@ -202,13 +202,15 @@ def _body_relationships(doc_id: str, doc_path: str, body: str, strict_markers: b
             if code:
                 if _EXTERNAL_MARKER_RE.search(line):
                     line_targets.append((normalize_id(code[0]), "external"))
-                elif _UNRESOLVED_MARKER_RE.search(line):
-                    line_targets.append((normalize_id(code[0]), "unresolved"))
+                elif (um := _UNRESOLVED_MARKER_RE.search(line)):
+                    status = "ambiguous" if um.group(0) == "AMBIGUOUS" else "unresolved"
+                    line_targets.append((normalize_id(code[0]), status))
                 elif not strict_markers:
                     line_targets.append((normalize_id(code[0]), "resolved"))
 
         m_line = _LINE_NO_RE.search(line)
-        line_no = int(m_line.group(1)) if m_line else None
+        line_nos = [int(x) for x in re.findall(r"\d+", m_line.group(1))] if m_line else []
+        line_no = line_nos[0] if line_nos else None
         for target, status in line_targets:
             if section:
                 rtype, reverse = section
@@ -217,7 +219,7 @@ def _body_relationships(doc_id: str, doc_path: str, body: str, strict_markers: b
                 rtype, reverse, origin = RelationType.REFERENCES, False, "body_link"
             src, dst = (target, doc_id) if reverse else (doc_id, target)
             rels.append(Relationship(source=src, target=dst, type=rtype, origin=origin,
-                                     status=status, line=line_no))
+                                     status=status, line=line_no, lines=line_nos))
     return rels, links
 
 

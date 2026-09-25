@@ -102,4 +102,5 @@ class Relationship(BaseModel):
     type: RelationType
     origin: str = "frontmatter"  # frontmatter | body_section | body_link | derived
     status: str = "resolved"  # resolved | unresolved | external
-    line: int | None = None  # source line of the call/use when the OKF records it
+    line: int | None = None  # first source line of the call/use when the OKF records it
+    lines: list[int] = []  # every call-site line (Java2OKF "— lines 12, 15")

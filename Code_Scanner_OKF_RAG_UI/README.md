@@ -109,6 +109,7 @@ Configuration lives in `config/config.yaml`. Environment variables override it u
 | `llm.temperature` / `llm.timeout_seconds` | `0.1` / `600` | `CODEKNOWLEDGE_LLM_TEMPERATURE` / `…_TIMEOUT_SECONDS` | Generation settings |
 | `llm.num_ctx` | `16384` | `CODEKNOWLEDGE_LLM_NUM_CTX` | Ollama context window (long methods need it) |
 | `source.root_dir` | none | `CODEKNOWLEDGE_SOURCE_ROOT_DIR` | Java project root, used to show and explain real code and comments |
+| `method_explanation.*` | see docs | `CODEKNOWLEDGE_METHOD_EXPLANATION_*` | Explain Method workflow (depth, budget, validation, cache); see [docs/method-explanation.md](docs/method-explanation.md) |
 | `embedding.timeout_seconds` / `batch_size` | `300` / `16` | `CODEKNOWLEDGE_EMBEDDING_*` | Per-request timeout; timed-out batches are split and retried |
 | `embedding.provider` | `ollama` | `CODEKNOWLEDGE_EMBEDDING_PROVIDER` | `ollama` or `hash` (offline/test) |
 | `embedding.model` | `nomic-embed-text` | `CODEKNOWLEDGE_EMBEDDING_MODEL` | Embedding model |
@@ -251,6 +252,19 @@ resolve, referenced files exist, links escaping the root, plus unresolved relati
 documents (warning). External references are counted but are not warnings. The summary lists the most frequent
 unresolved targets. `-v` prints the first 200 issues, errors first.
 
+### Explain a method (evidence-grounded)
+
+Open a method and go to its **Explain** tab, call `POST /api/methods/{method_id}/explain`, or ask
+"Explain `Class.method`". The answer is a structured, step-by-step explanation in which every statement cites lines
+that the server has verified against the evidence sent to the model:
+- the method body
+- callee bodies, to a configurable depth
+- calls, with their resolution status
+
+The model's output is constrained to a JSON schema and validated. Invented line numbers are removed, and a call is
+never described as "inspected" unless its body was supplied. See **[docs/method-explanation.md](docs/method-explanation.md)**
+for the pipeline, API, configuration (`method_explanation:`), validation policy, tests and benchmark.
+
 ## 7. How to build indexes
 
 ```bash
@@ -330,6 +344,7 @@ Full OpenAPI docs are at `/docs`.
 | GET | `/api/status` | Index, vector and LLM status |
 | POST | `/api/index/rebuild` | Body `{"vectors": true}`; purges stale cache entries |
 | POST | `/api/search` | `{"query", "top_k", "mode", "entity_type", "package", "expand_graph"}` |
+| POST | `/api/methods/{method_id}/explain` | Evidence-grounded method explanation (see docs/method-explanation.md) |
 | POST | `/api/ask` | `{"question", "use_llm", "use_cache"}`; returns facts, interpretation, evidence, plan, paths, flow, timings, `request_id` |
 | GET | `/api/entities/{id}` | Entity, document content, owner, members, resolved cross-links |
 | GET | `/api/entities/{id}/relationships` | Incoming and outgoing edges (with `status`) |

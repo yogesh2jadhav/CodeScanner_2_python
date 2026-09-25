@@ -5,7 +5,7 @@ import re
 
 import httpx
 
-from codeknowledge.llm.provider import LLMProvider, LLMUnavailableError
+from codeknowledge.llm.provider import LLMModelMissingError, LLMProvider, LLMTimeoutError, LLMUnavailableError
 from codeknowledge.utils.logging import get_logger
 
 logger = get_logger("OllamaProvider")
@@ -32,7 +32,7 @@ class OllamaProvider(LLMProvider):
         except (httpx.HTTPError, ValueError):
             return False
 
-    def generate(self, prompt: str, system: str | None = None) -> str:
+    def generate(self, prompt: str, system: str | None = None, fmt: dict | str | None = None) -> str:
         messages = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
         payload = {
             "model": self.model,
@@ -43,12 +43,20 @@ class OllamaProvider(LLMProvider):
             "think": False,
             "options": {"temperature": self.temperature, **({"num_ctx": self.num_ctx} if self.num_ctx else {})},
         }
+        if fmt is not None:
+            payload["format"] = fmt  # Ollama structured outputs: constrain the reply to this JSON schema
         try:
             r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
             r.raise_for_status()
             content = r.json()["message"]["content"]
-        except httpx.TimeoutException as exc:
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                raise LLMModelMissingError(
+                    f"Model '{self.model}' is not installed in Ollama. Run: ollama pull {self.model}") from exc
             raise LLMUnavailableError(
+                f"Ollama request failed (model={self.model}): HTTP {exc.response.status_code}") from exc
+        except httpx.TimeoutException as exc:
+            raise LLMTimeoutError(
                 f"Ollama did not answer within {self.timeout}s (model={self.model}). Increase llm.timeout_seconds "
                 "or use a smaller/faster model.") from exc
         except httpx.ConnectError as exc:
@@ -56,3 +64,6 @@ class OllamaProvider(LLMProvider):
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise LLMUnavailableError(f"Ollama request failed (model={self.model}): {exc}") from exc
         return _THINK_RE.sub("", content).strip()
+
+    def generate_json(self, prompt: str, system: str | None, schema: dict) -> str:
+        return self.generate(prompt, system, fmt=schema)

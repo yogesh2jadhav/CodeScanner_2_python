@@ -76,6 +76,27 @@ class RetrievalSettings(BaseModel):
     classifier_confidence_threshold: float = 0.6
 
 
+class MethodExplanationSettings(BaseModel):
+    enabled: bool = True
+    default_detail: str = "detailed"
+    max_callee_depth: int = 1
+    max_callees_per_method: int = 8
+    max_evidence_documents: int = 30
+    max_source_lines_per_method: int = 2500
+    # Effective budget = min(max_context_tokens, llm.num_ctx - output_token_reserve).
+    max_context_tokens: int = 12000
+    output_token_reserve: int = 2500
+    chars_per_token: float = 3.5  # conservative estimate for Java source (no tokenizer dependency)
+    include_caller_context: bool = False
+    include_related_config: bool = True
+    include_sql_evidence: bool = True
+    validate_citations: bool = True
+    max_repair_attempts: int = 1
+    cache_enabled: bool = True
+    prompt_version: str = "method-explanation-v1"
+    debug_prompt_logging: bool = False
+
+
 class CacheSettings(BaseModel):
     enabled: bool = True
     directory: str = "./data/cache"
@@ -95,6 +116,7 @@ class Settings(BaseModel):
     graph: GraphSettings = Field(default_factory=GraphSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     source: SourceSettings = Field(default_factory=SourceSettings)
+    method_explanation: MethodExplanationSettings = Field(default_factory=MethodExplanationSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)

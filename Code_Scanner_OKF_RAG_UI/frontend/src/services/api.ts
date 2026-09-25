@@ -1,12 +1,13 @@
 import type {
-  AskResponse, EntityDetail, EntityRelationships, FlowResponse, SearchMode, SearchResponse, SourceResponse,
+  AskResponse, EntityDetail, EntityRelationships, ExplainOptions, FlowResponse, MethodExplanationResponse,
+  SearchMode, SearchResponse, SourceResponse,
   StatusResponse, SubGraphResponse, TreeNode,
 } from "../types/api";
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public requestId?: string) {
     super(message);
   }
 }
@@ -18,13 +19,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let requestId: string | undefined = res.headers.get("X-Request-ID") ?? undefined;
     try {
       const body = await res.json();
       detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      requestId = body.request_id ?? requestId;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, detail || `HTTP ${res.status}`);
+    throw new ApiError(res.status, detail || `HTTP ${res.status}`, requestId);
   }
   return res.json() as Promise<T>;
 }
@@ -49,5 +52,9 @@ export const api = {
     return request<SubGraphResponse>(`/api/graph/subgraph/${id(entityId)}?${q}`);
   },
   source: (entityId: string) => request<SourceResponse>(`/api/entities/${id(entityId)}/source`),
+  explainMethod: (methodId: string, options: ExplainOptions = {}, signal?: AbortSignal) =>
+    request<MethodExplanationResponse>(`/api/methods/${id(methodId)}/explain`, {
+      method: "POST", body: JSON.stringify(options), signal,
+    }),
   flow: (entityId: string) => request<FlowResponse>(`/api/flow/${id(entityId)}`),
 };

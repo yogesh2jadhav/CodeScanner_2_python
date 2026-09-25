@@ -31,7 +31,7 @@ class ExplorerService:
             for e in g.edges(d.id, "out", {"CONTAINS"}):
                 m = repo.get(e.target)
                 if m and m.type in (EntityType.METHOD, EntityType.FIELD):
-                    methods.append({"id": m.id, "title": m.method_name or m.title, "type": m.type.value})
+                    methods.append({"id": m.id, "title": m.method_name or m.title, "type": m.type.value, "children": []})
             node["children"].append({"id": d.id, "title": d.display_name(), "type": d.type.value,
                                      "children": sorted(methods, key=lambda m: m["title"])})
         others = [d for d in repo.documents

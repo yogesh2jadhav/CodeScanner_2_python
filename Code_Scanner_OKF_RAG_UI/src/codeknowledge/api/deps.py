@@ -1,6 +1,7 @@
 """Accessors for services stored on app.state (keeps routes free of globals)."""
 from fastapi import Request
 
+from codeknowledge.explain.service import MethodExplanationService
 from codeknowledge.services.ask_service import AskService
 from codeknowledge.services.explorer_service import ExplorerService
 from codeknowledge.services.flow_service import FlowService
@@ -22,6 +23,10 @@ def explorer(request: Request) -> ExplorerService:
 
 def graph_service(request: Request) -> GraphService:
     return request.app.state.graph_service
+
+
+def method_explainer(request: Request) -> MethodExplanationService:
+    return request.app.state.method_explainer
 
 
 def flow_service(request: Request) -> FlowService:

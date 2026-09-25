@@ -54,7 +54,9 @@ def _join_markdown(lines: list[str]) -> str:
 
 
 class AskService:
-    def __init__(self, kb: KnowledgeBase, llm: LLMProvider | None, cache: AnswerCache | None = None):
+    def __init__(self, kb: KnowledgeBase, llm: LLMProvider | None, cache: AnswerCache | None = None,
+                 explainer=None):
+        self.explainer = explainer  # MethodExplanationService: structured, validated method walkthroughs
         self.kb = kb
         self.llm = llm
         self.cache = cache
@@ -231,7 +233,25 @@ class AskService:
 
         # ---- LLM explanation (optional)
         interpretation, llm_error, llm_used = None, None, False
-        if plan.requires_llm and req.use_llm and self.llm is not None:
+        method_explanation = None
+        explain_method = (self.explainer is not None and primary is not None and cat in WALKTHROUGH_CATEGORIES
+                          and (d := kb.repo.get(primary)) is not None and d.type == EntityType.METHOD
+                          and self.explainer.cfg.enabled)
+        if explain_method and plan.requires_llm and req.use_llm and self.llm is not None:
+            # "Explain X" for a method goes through the evidence-grounded, citation-validated workflow.
+            from codeknowledge.explain.models import ExplainOptions
+
+            try:
+                with timed(logger, "method_explanation", timings):
+                    mx = self.explainer.explain(primary, ExplainOptions(), request_id=request_id)
+                method_explanation = mx.model_dump(mode="json")
+                if mx.explanation is not None:
+                    interpretation, llm_used = mx.markdown, True
+                else:
+                    llm_error = "; ".join(mx.warnings[-1:]) or "The model did not return a valid explanation."
+            except LLMUnavailableError as exc:
+                llm_error = f"LLM unavailable: {exc}"
+        elif plan.requires_llm and req.use_llm and self.llm is not None:
             if not ctx.entities:
                 llm_error = "No evidence found; LLM not called to avoid an unsupported answer."
             else:
@@ -263,7 +283,8 @@ class AskService:
             classification_method=cls.method, plan=plan.describe(), target=primary, answer=answer, facts=facts,
             interpretation=interpretation, evidence=evidence,
             related_entities=[entity_summary(kb.repo, kb.graph, e.id) for e in ctx.entities if e.id != primary][:MAX_LISTED],
-            relationships=ctxb.relationships[:200], paths=paths, flow=flow, source=source_view, llm_used=llm_used,
+            relationships=ctxb.relationships[:200], paths=paths, flow=flow, source=source_view,
+            method_explanation=method_explanation, llm_used=llm_used,
             llm_model=self.llm.model if (self.llm and llm_used) else None, llm_error=llm_error,
             warnings=warnings, timings_ms=dict(timings), knowledge_base_version=kb.repo.bundle_hash[:12],
         )

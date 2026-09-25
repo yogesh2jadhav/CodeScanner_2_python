@@ -8,7 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from codeknowledge.api import (routes_ask, routes_explorer, routes_flow, routes_graph, routes_health,
-                               routes_index, routes_search)
+                               routes_index, routes_methods, routes_search)
+from codeknowledge.explain.evidence import InvalidMethodIdError, MethodNotFoundError
+from codeknowledge.explain.service import ExplanationDisabledError, MethodExplanationService
+from codeknowledge.llm.provider import LLMTimeoutError, LLMUnavailableError
 from codeknowledge.config.settings import Settings, get_settings
 from codeknowledge.llm.provider import LLMProvider, create_llm_provider
 from codeknowledge.services.ask_service import AskService
@@ -45,7 +48,8 @@ def create_app(settings: Settings | None = None, llm: LLMProvider | None = None,
     app.state.kb = kb
     app.state.llm = llm
     app.state.cache = cache
-    app.state.ask_service = AskService(kb, llm, cache)
+    app.state.method_explainer = MethodExplanationService(kb, llm, cache)
+    app.state.ask_service = AskService(kb, llm, cache, app.state.method_explainer)
     app.state.explorer = ExplorerService(kb)
     app.state.graph_service = GraphService(kb)
     app.state.flow_service = FlowService(kb)
@@ -80,7 +84,30 @@ def create_app(settings: Settings | None = None, llm: LLMProvider | None = None,
     async def not_found(_: Request, exc: EntityNotFoundError):
         return JSONResponse(status_code=404, content={"detail": f"Entity not found: {exc.args[0]}"})
 
-    for r in (routes_health, routes_index, routes_search, routes_ask, routes_explorer, routes_graph, routes_flow):
+    def _error(request: Request, status: int, detail: str) -> JSONResponse:
+        # Safe client error: message + correlation id; stack traces stay in the server log.
+        return JSONResponse(status_code=status, content={"detail": detail, "request_id": request.state.request_id})
+
+    @app.exception_handler(MethodNotFoundError)
+    async def method_not_found(request: Request, exc: MethodNotFoundError):
+        return _error(request, 404, f"Method not found: {exc.args[0]}")
+
+    @app.exception_handler(InvalidMethodIdError)
+    async def invalid_method_id(request: Request, exc: InvalidMethodIdError):
+        return _error(request, 422, str(exc))
+
+    @app.exception_handler(ExplanationDisabledError)
+    async def explanation_disabled(request: Request, exc: ExplanationDisabledError):
+        return _error(request, 404, str(exc))
+
+    @app.exception_handler(LLMUnavailableError)
+    async def llm_unavailable(request: Request, exc: LLMUnavailableError):
+        status = 504 if isinstance(exc, LLMTimeoutError) else 503
+        logger.error("LLM error (%s): %s", type(exc).__name__, exc)
+        return _error(request, status, str(exc))
+
+    for r in (routes_health, routes_index, routes_search, routes_ask, routes_explorer, routes_graph, routes_flow,
+              routes_methods):
         app.include_router(r.router)
     logger.info("Application created name=%s version=%s", settings.application.name, settings.application.version)
     return app

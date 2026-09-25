@@ -148,6 +148,8 @@ class OKFRepository:
                 dst = rel.target if (rel.target == doc.id or external) else (self.resolve(rel.target, doc.id) or rel.target)
                 if external:
                     status = "external"
+                elif rel.status == "ambiguous":
+                    status = "ambiguous"
                 else:
                     status = "resolved" if (src in self.by_id and dst in self.by_id) else "unresolved"
                 if src.startswith(PATH_TARGET_PREFIX):
@@ -161,7 +163,7 @@ class OKFRepository:
                     continue
                 seen.add(key)
                 out.append(Relationship(source=src, target=dst, type=rel.type, origin=rel.origin, status=status,
-                                        line=rel.line))
+                                        line=rel.line, lines=rel.lines))
         for rel in self._derived_containment():
             key = (rel.source, rel.target, rel.type.value)
             if key not in seen:

@@ -205,3 +205,13 @@ def test_entity_source_endpoint(tmp_path):
         assert body["available"] and body["start_line"] == 17 and body["end_line"] == 24
         assert body["conditions"][0]["expression"] == "amount <= 0"
         assert c.get("/api/status").json()["source"]["enabled"] is True
+
+
+def test_explorer_tree_members_have_children_lists(client):
+    tree = client.get("/api/explorer/tree").json()
+
+    def walk(nodes):
+        for n in nodes:
+            assert isinstance(n.get("children"), list), n
+            walk(n["children"])
+    walk(tree)

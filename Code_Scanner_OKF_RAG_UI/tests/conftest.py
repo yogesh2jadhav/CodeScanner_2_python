@@ -41,3 +41,19 @@ def make_kb(tmp_path: Path, okf_dir: Path | None = None):
 @pytest.fixture
 def kb(tmp_path: Path):
     return make_kb(tmp_path)
+
+
+EXPLAIN_OKF = FIXTURES / "explain-okf"
+EXPLAIN_JAVA = FIXTURES / "explain-java"
+BUILD_VISITS = "java-method:com.acme.visits.VisitProcessor.buildVisits(java.util.List,boolean)"
+
+
+def make_explain_kb(tmp_path: Path, with_source: bool = True):
+    from codeknowledge.services.indexing_service import KnowledgeBase
+
+    s = make_settings(tmp_path, EXPLAIN_OKF)
+    if with_source:
+        s.source.root_dir = str(EXPLAIN_JAVA)
+    kb = KnowledgeBase(s)
+    kb.load(rebuild=True, rebuild_vectors=True)
+    return kb

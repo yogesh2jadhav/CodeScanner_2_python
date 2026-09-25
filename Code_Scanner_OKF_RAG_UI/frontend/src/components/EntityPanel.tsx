@@ -4,6 +4,7 @@ import { api } from "../services/api";
 import type { EntityDetail, EntityRelationships, FlowResponse, SourceResponse, SourceView } from "../types/api";
 import { useEntityPanel } from "./EntityPanelContext";
 import { EntityLink } from "./EntityLink";
+import { ExplainPanel } from "./ExplainPanel";
 import { FlowDiagram } from "./FlowDiagram";
 import { Markdown } from "./Markdown";
 import { RelationshipList } from "./RelationshipList";
@@ -11,7 +12,7 @@ import { SourceCode } from "./SourceCode";
 import { TypeBadge } from "./TypeBadge";
 import { ErrorBox, Notice, Spinner, ghostButtonCls } from "./ui";
 
-type Tab = "overview" | "source" | "document" | "relationships" | "flow";
+type Tab = "overview" | "explain" | "source" | "document" | "relationships" | "flow";
 
 /** Slide-over with Class / Method / Source / Relationships / Flow for any entity. */
 export function EntityPanel() {
@@ -70,7 +71,7 @@ export function EntityPanel() {
             <button className={ghostButtonCls} onClick={() => go("/flow")}>Open in Flow</button>
           </div>
           <nav className="mt-3 flex gap-1 text-sm" role="tablist">
-            {(["overview", "source", "document", "relationships", "flow"] as Tab[]).map((t) => (
+            {(["overview", ...(e?.type === "method" ? ["explain"] : []), "source", "document", "relationships", "flow"] as Tab[]).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
                 className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
                 {t}
@@ -100,6 +101,7 @@ export function EntityPanel() {
           )}
           {detail && tab === "document" && (detail.content ? <Markdown linkTargets={detail.link_targets}>{detail.content}</Markdown> : <p className="text-sm text-slate-500">No document content.</p>)}
           {rels && tab === "relationships" && <RelationshipList rels={rels} />}
+          {tab === "explain" && e?.type === "method" && <ExplainPanel key={entityId} methodId={entityId} />}
           {tab === "source" && !source && !error && <Spinner />}
           {tab === "source" && source && (source.available
             ? <SourceCode source={source as SourceView} maxHeight={640} />

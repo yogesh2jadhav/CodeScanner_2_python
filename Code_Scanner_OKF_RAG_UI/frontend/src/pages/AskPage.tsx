@@ -6,6 +6,7 @@ import { useEntityPanel } from "../components/EntityPanelContext";
 import { FlowDiagram } from "../components/FlowDiagram";
 import { Markdown } from "../components/Markdown";
 import { SourceCode } from "../components/SourceCode";
+import { MethodExplanationView } from "../components/MethodExplanation";
 import { Card, ErrorBox, Notice, Spinner, buttonCls } from "../components/ui";
 import { linkifyMarkdown, type LinkTarget } from "../utils/linkify";
 import { shortName } from "../utils/entityStyle";
@@ -73,7 +74,13 @@ function Answer({ r }: { r: AskResponse }) {
         <Markdown>{linkifyMarkdown(r.answer, targets)}</Markdown>
       </Card>
 
-      {r.interpretation && (
+      {r.method_explanation && (
+        <Card title={<>Method explanation <span className="normal-case text-slate-400">— evidence-grounded, citations verified</span></>}
+          className="border-violet-200 dark:border-violet-900">
+          <MethodExplanationView data={r.method_explanation} />
+        </Card>
+      )}
+      {r.interpretation && !r.method_explanation && (
         <Card title={<>AI interpretation <span className="normal-case text-slate-400">— {r.llm_model}; verify against evidence</span></>}
           className="border-violet-200 dark:border-violet-900">
           <Markdown>{linkifyMarkdown(r.interpretation, targets)}</Markdown>

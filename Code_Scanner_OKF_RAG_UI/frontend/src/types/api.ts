@@ -107,6 +107,72 @@ export interface SourceResponse extends Partial<SourceView> {
   reason?: string;
 }
 
+export interface SourceRef { evidence_id: string; start_line: number; end_line: number }
+export type Certainty = "observed" | "derived" | "unknown";
+
+export interface EvidenceItem {
+  evidence_id: string;
+  kind: string;
+  title: string;
+  entity_id?: string | null;
+  file?: string | null;
+  start_line?: number | null;
+  end_line?: number | null;
+  status: string;
+  depth: number;
+  priority: number;
+  content: string;
+  lines: number[];
+}
+
+export interface Grounded { source_refs: SourceRef[]; grounded: boolean }
+export interface ExplanationStep extends Grounded { step_number: number; title: string; description: string; certainty: Certainty }
+export interface BranchItem extends Grounded { condition: string; when_true: string; when_false?: string | null }
+export interface DescribedItem extends Grounded { description: string }
+export interface CallExplanation extends Grounded {
+  callee: string;
+  evidence_status: "body_inspected" | "signature_only" | "unresolved" | "external";
+  summary: string;
+}
+
+export interface LLMExplanation {
+  summary: string;
+  purpose_is_inferred: boolean;
+  inputs_outputs: { name: string; role: "input" | "output" | "exception" | "side_effect"; description: string }[];
+  execution_steps: ExplanationStep[];
+  branches: BranchItem[];
+  data_transformations: DescribedItem[];
+  calls: CallExplanation[];
+  side_effects: DescribedItem[];
+  exceptions: DescribedItem[];
+  uncertainties: string[];
+}
+
+export interface MethodExplanationResponse {
+  request_id: string;
+  method_id: string;
+  method_signature: string;
+  method_title: string;
+  explanation: LLMExplanation | null;
+  evidence: EvidenceItem[];
+  facts: { comments: SourceComment[]; conditions: SourceCondition[]; calls: { target: string; entity_id?: string | null; status: string; lines: number[] }[] };
+  warnings: string[];
+  validation: { valid: boolean; repair_attempts: number; invalid_refs_removed: number; ungrounded_items: number; corrected_call_statuses: number; errors: string[] } | null;
+  model: { provider: string; model: string; prompt_version: string; num_ctx?: number | null } | null;
+  cached: boolean;
+  timings_ms: Record<string, number>;
+  estimated_prompt_tokens: number;
+  markdown: string;
+}
+
+export interface ExplainOptions {
+  detail?: "detailed" | "summary";
+  max_callee_depth?: number;
+  include_caller_context?: boolean;
+  force_refresh?: boolean;
+  use_llm?: boolean;
+}
+
 export interface AskResponse {
   request_id: string;
   question: string;
@@ -124,6 +190,7 @@ export interface AskResponse {
   paths: string[][];
   flow?: Flow | null;
   source?: SourceView | null;
+  method_explanation?: MethodExplanationResponse | null;
   llm_used: boolean;
   llm_model?: string | null;
   llm_error?: string | null;

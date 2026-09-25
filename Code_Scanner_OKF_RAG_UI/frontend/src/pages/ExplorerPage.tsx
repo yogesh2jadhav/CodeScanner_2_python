@@ -12,8 +12,8 @@ function filterTree(nodes: TreeNode[], q: string): TreeNode[] {
   if (!q) return nodes;
   const lq = q.toLowerCase();
   return nodes.flatMap((n) => {
-    const kids = filterTree(n.children, q);
-    return n.title.toLowerCase().includes(lq) || kids.length ? [{ ...n, children: kids.length ? kids : n.children }] : [];
+    const kids = filterTree(n.children ?? [], q);
+    return n.title.toLowerCase().includes(lq) || kids.length ? [{ ...n, children: kids.length ? kids : n.children ?? [] }] : [];
   });
 }
 
@@ -22,7 +22,8 @@ function TreeItem({ node, depth, selected, onSelect, expanded, toggle }: {
   expanded: Set<string>; toggle: (id: string) => void;
 }) {
   const isOpen = expanded.has(node.id);
-  const hasKids = node.children.length > 0;
+  const kids = node.children ?? [];
+  const hasKids = kids.length > 0;
   const selectable = node.type !== "group" && (node.type !== "package" || node.has_document);
   return (
     <li>
@@ -38,7 +39,7 @@ function TreeItem({ node, depth, selected, onSelect, expanded, toggle }: {
         </button>
       </div>
       {isOpen && hasKids && (
-        <ul>{node.children.map((c) => <TreeItem key={c.id} node={c} depth={depth + 1} selected={selected} onSelect={onSelect} expanded={expanded} toggle={toggle} />)}</ul>
+        <ul>{kids.map((c) => <TreeItem key={c.id} node={c} depth={depth + 1} selected={selected} onSelect={onSelect} expanded={expanded} toggle={toggle} />)}</ul>
       )}
     </li>
   );

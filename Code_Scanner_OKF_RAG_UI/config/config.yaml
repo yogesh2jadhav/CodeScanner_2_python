@@ -46,6 +46,26 @@ embedding:
   timeout_seconds: 300
   batch_size: 16
 
+# Evidence-grounded "Explain method" (POST /api/methods/{id}/explain, Explain tab in the entity panel).
+method_explanation:
+  enabled: true
+  default_detail: detailed          # detailed | summary
+  max_callee_depth: 1               # 0 = selected method only
+  max_callees_per_method: 8         # callee bodies included per method (non-accessors first)
+  max_evidence_documents: 30
+  max_source_lines_per_method: 2500 # larger bodies are refused with a size-limit warning
+  max_context_tokens: 12000         # effective = min(this, llm.num_ctx - output_token_reserve)
+  output_token_reserve: 2500
+  chars_per_token: 3.5
+  include_caller_context: false
+  include_related_config: true      # referenced constants of the declaring class
+  include_sql_evidence: true        # SQL-looking string literals in the method/callees
+  validate_citations: true
+  max_repair_attempts: 1
+  cache_enabled: true
+  prompt_version: method-explanation-v1
+  debug_prompt_logging: false       # true logs a truncated prompt at DEBUG (may contain source)
+
 retrieval:
   semantic_top_k: 10
   symbol_top_k: 10

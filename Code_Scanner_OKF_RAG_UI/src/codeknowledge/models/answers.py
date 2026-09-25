@@ -73,6 +73,7 @@ class AskResponse(BaseModel):
     paths: list[list[str]] = Field(default_factory=list)
     flow: Flow | None = None
     source: SourceView | None = None
+    method_explanation: dict | None = None  # MethodExplanationResponse when the target is a method
     llm_used: bool = False
     llm_model: str | None = None
     llm_error: str | None = None
