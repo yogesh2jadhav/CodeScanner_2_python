@@ -108,7 +108,7 @@ class KnowledgeBase:
                 do_vectors = rebuild if rebuild_vectors is None else rebuild_vectors
                 if do_vectors:
                     with timed(logger, "vector_index", timings):
-                        run = semantic.rebuild(repo, progress, full=full_vectors)
+                        run = semantic.rebuild(repo, progress, full=full_vectors, source=self.source)
                     status.vector_run = {"embedded": run.embedded, "unchanged": run.unchanged, "removed": run.removed}
                     status.vector_status = "ok"
                 elif semantic.count() == 0:

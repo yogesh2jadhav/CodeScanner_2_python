@@ -42,6 +42,19 @@ TEXT_HASH_KEY = "text_hash"
 GET_PAGE = 5000
 
 
+def _comments_for(source, doc) -> str | None:
+    """Developer comments of a method, read from source.root_dir (None when unavailable)."""
+    if source is None or not source.enabled or doc.type.value != "method":
+        return None
+    try:
+        from codeknowledge.source.reader import extract_comments
+
+        snippet = source.snippet(doc)
+        return " ".join(" ".join(c.text.split()) for c in extract_comments(snippet)) if snippet else None
+    except OSError:
+        return None
+
+
 def _text_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
@@ -111,7 +124,7 @@ class SemanticIndex:
                 return out
             offset += GET_PAGE
 
-    def rebuild(self, repo: OKFRepository, progress=None, full: bool = False) -> IndexRunStats:
+    def rebuild(self, repo: OKFRepository, progress=None, full: bool = False, source=None) -> IndexRunStats:
         """Bring the vector index in line with the bundle, incrementally.
 
         Why incremental: embedding a 10k+ document bundle on CPU takes a long time.
@@ -142,7 +155,7 @@ class SemanticIndex:
                 by_doc.setdefault(r.source, []).append(r)
                 by_doc.setdefault(r.target, []).append(r)
             docs = repo.content_documents
-            texts = {d.id: build_retrieval_text(d, by_doc.get(d.id, [])) for d in docs}
+            texts = {d.id: build_retrieval_text(d, by_doc.get(d.id, []), _comments_for(source, d)) for d in docs}
             hashes = {eid: _text_hash(t) for eid, t in texts.items()}
 
             existing = self._existing_hashes()

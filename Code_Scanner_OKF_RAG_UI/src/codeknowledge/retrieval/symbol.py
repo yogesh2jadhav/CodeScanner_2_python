@@ -155,4 +155,19 @@ class SymbolIndex:
                         hits.append(h)
             if hits:
                 break
+        # "processCasingData in CasingService" names both a class and one of its methods;
+        # the method is the more specific target, so its class is dropped.
+        method_bases = {base_name(h.entity_id) for h in hits
+                        if (d := self.repo.get(h.entity_id)) is not None and d.type == EntityType.METHOD}
+        hits = [h for h in hits
+                if not any(mb.startswith(base_name(h.entity_id) + ".") for mb in method_bases)]
         return sorted(hits, key=lambda h: -h.score)
+
+    def close_matches(self, question: str, limit: int = 5) -> list[SymbolHit]:
+        """Fuzzy candidates for code-like tokens that matched nothing exactly (typos, partial names)."""
+        out: dict[str, SymbolHit] = {}
+        for tok in extract_symbols(question):
+            for h in self.search(tok, top_k=limit, fuzzy=True):
+                if h.kind != "in_package" and h.entity_id not in out:
+                    out[h.entity_id] = h
+        return sorted(out.values(), key=lambda h: -h.score)[:limit]

@@ -63,8 +63,15 @@ class HybridRetriever:
             else:
                 try:
                     with timed(logger, "semantic_search", timings):
+                        stale = 0
                         for h in self.semantic.search(req.query, pool, req.entity_type, req.package):
+                            if h.entity_id not in self.repo.by_id:
+                                stale += 1  # vector entry from an older bundle / id format
+                                continue
                             rr.add(h.entity_id, max(h.score, 0.0), "semantic", "semantic similarity")
+                        if stale:
+                            warnings.append(f"The vector index contains {stale} entries that are not in the current "
+                                            "OKF bundle; run scripts/rebuild_indexes.py.")
                 except (SemanticUnavailableError, EmbeddingUnavailableError) as exc:
                     # Graceful degradation: symbol + graph results are still returned.
                     logger.warning("Semantic search unavailable: %s", exc)

@@ -209,3 +209,42 @@ def test_structural_questions_do_not_attach_source(j2o_with_source):
     r = AskService(j2o_with_source, MockLLMProvider(), None).ask(
         AskRequest(question="Who calls OrderRepository.save?"))
     assert r.source is None
+
+
+def test_method_named_with_its_class_targets_the_method(j2o_with_source):
+    r = AskService(j2o_with_source, MockLLMProvider(), None).ask(
+        AskRequest(question="Explain the method placeOrder in OrderService", use_llm=False))
+    assert r.target == "java-method:com.example.OrderService.placeOrder(com.example.Customer,double)"
+    assert r.source is not None
+
+
+def test_close_match_for_misspelled_method(j2o_with_source):
+    r = AskService(j2o_with_source, MockLLMProvider(), None).ask(
+        AskRequest(question="Explain placeOrdr", use_llm=False))
+    assert r.target == "java-method:com.example.OrderService.placeOrder(com.example.Customer,double)"
+
+
+def test_missing_source_root_is_explained(tmp_path):
+    from tests.conftest import FIXTURES, make_kb
+
+    kb = make_kb(tmp_path, FIXTURES / "java2okf-sample")
+    r = AskService(kb, MockLLMProvider(), None).ask(AskRequest(question="Explain OrderService.placeOrder", use_llm=False))
+    assert r.source is None and "Set `source.root_dir`" in r.answer
+
+
+def test_stale_vector_entries_are_ignored_and_reported(tmp_path):
+    from codeknowledge.models.query import SearchRequest
+    from codeknowledge.retrieval.semantic import SemanticHit
+    from tests.conftest import make_kb
+
+    kb = make_kb(tmp_path)
+
+    class StaleSemantic:
+        def search(self, *a, **k):
+            return [SemanticHit("java-method:old.Id.gone", 0.99, {}),
+                    SemanticHit("com.example.claim.ClaimService", 0.5, {})]
+
+    kb.retriever.semantic = StaleSemantic()
+    res = kb.retriever.search(SearchRequest(query="something vague", expand_graph=False))
+    assert [h.entity.id for h in res.hits] == ["com.example.claim.ClaimService"]
+    assert any("not in the current OKF bundle" in w for w in res.warnings)

@@ -16,7 +16,10 @@ from codeknowledge.utils.ids import short_name
 MAX_CONTENT_CHARS = 800
 
 
-def build_retrieval_text(doc: OKFDocument, relationships: list[Relationship]) -> str:
+MAX_COMMENT_CHARS = 1500
+
+
+def build_retrieval_text(doc: OKFDocument, relationships: list[Relationship], comments: str | None = None) -> str:
     rel_lines: dict[str, list[str]] = {}
     for r in relationships:
         if r.source == doc.id:
@@ -39,6 +42,10 @@ def build_retrieval_text(doc: OKFDocument, relationships: list[Relationship]) ->
         parts.append(f"Summary: {doc.summary}")
     for rtype, targets in sorted(rel_lines.items()):
         parts.append(f"{rtype}: {', '.join(sorted(set(targets))[:20])}")
+    if comments:
+        # Developer comments carry the business vocabulary ("discharge date", "casing")
+        # that structure-only OKF lacks; they make the method findable by meaning.
+        parts.append("Comments: " + comments[:MAX_COMMENT_CHARS])
     if doc.content:
         parts.append("Content: " + doc.content[:MAX_CONTENT_CHARS])
     return "\n".join(parts)

@@ -243,3 +243,9 @@ def test_ollama_single_doc_timeout_is_clear_error(monkeypatch):
     with pytest.raises(EmbeddingUnavailableError) as exc:
         OllamaEmbeddingProvider("http://ollama", "m", timeout=1, batch_size=4).embed(["a", "b"])
     assert "timeout_seconds" in str(exc.value) and "rerun" in str(exc.value)
+
+
+def test_comments_are_part_of_retrieval_text(repo):
+    doc = repo.get(f"{P}.CasingService.processClaims")
+    text = build_retrieval_text(doc, [], comments="Sets discharge date to max toServiceDate")
+    assert "Comments: Sets discharge date to max toServiceDate" in text

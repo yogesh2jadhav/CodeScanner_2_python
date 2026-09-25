@@ -34,6 +34,7 @@ logger = get_logger("AskService")
 _FROM_TO_RE = re.compile(r"\bfrom\s+`?([\w.$#()]+)`?\s+to\s+`?([\w.$#()]+)`?", re.IGNORECASE)
 _BETWEEN_RE = re.compile(r"\bbetween\s+`?([\w.$#()]+)`?\s+and\s+`?([\w.$#()]+)`?", re.IGNORECASE)
 MAX_FLOW_METHODS = 3
+CLOSE_MATCH_MIN = 0.55  # fuzzy symbol score needed to use a close match as the target
 WALKTHROUGH_CATEGORIES = {C.FUNCTIONAL_EXPLANATION, C.FLOW, C.BUSINESS_RULE, C.GENERAL, C.METHOD_LOOKUP,
                           C.SEMANTIC_SEARCH}
 FLOW_BONUS = 0.08
@@ -158,6 +159,12 @@ class AskService:
                     ranked = methods + [h for h in ranked if h.entity.type != EntityType.METHOD]
                 targets = [h.entity.id for h in ranked[:2]]
 
+        # A code-like name that matched nothing exactly (typo, partial name): try close matches
+        # before falling back to semantic guesses.
+        if not cls.symbols:
+            close = [h for h in kb.symbols.close_matches(question) if h.score >= CLOSE_MATCH_MIN]
+            if close:
+                targets = [close[0].entity_id] + [t for t in targets if t != close[0].entity_id]
         primary = targets[0] if targets else None
         facts: list[Fact] = []
         paths: list[list[str]] = []
@@ -177,6 +184,12 @@ class AskService:
             if primary is None and cat not in (C.ARCHITECTURE, C.GENERAL, C.SEMANTIC_SEARCH):
                 lines.append("I could not identify a code entity for this question in the knowledge base. "
                              "Try naming a class or method (e.g. `ClassName.methodName`).")
+                candidates = kb.symbols.close_matches(question) or []
+                if candidates:
+                    lines.append("Did you mean:")
+                    lines.extend(f"- {self.label(h.entity_id)}" for h in candidates)
+                    for h in candidates:
+                        ctxb.add_entity(h.entity_id, h.score, "symbol", "close name match")
             elif cat in (C.CALLERS, C.CALLEES, C.DEPENDENCIES, C.IMPACT_ANALYSIS):
                 lines += self._traversal_answer(cat, cls.direction, primary, plan.graph_depth, cls.transitive,
                                                 ctxb, facts, paths)
@@ -390,7 +403,14 @@ class AskService:
     def _source_for(self, primary, ctxb, facts, lines, cat) -> SourceView | None:
         """Attach the method's code; comments and conditions become deterministic facts."""
         doc = self.kb.repo.get(primary)
-        if doc is None or doc.type != EntityType.METHOD or not self.kb.source.enabled:
+        if doc is None or doc.type != EntityType.METHOD:
+            return None
+        if not self.kb.source.enabled:
+            if cat in WALKTHROUGH_CATEGORIES:
+                # Without source the answer can only use structure; say so instead of looking thin.
+                lines.append("_The OKF bundle has no method code or comments. Set `source.root_dir` in "
+                             "config/config.yaml to the Java project folder to get a step-by-step explanation "
+                             "based on the real code and its comments._")
             return None
         snippet = self.kb.source.snippet(doc)
         if snippet is None:
