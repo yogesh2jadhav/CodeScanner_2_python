@@ -5,16 +5,20 @@ import { EntityLink } from "../components/EntityLink";
 import { useEntityPanel } from "../components/EntityPanelContext";
 import { FlowDiagram } from "../components/FlowDiagram";
 import { Markdown } from "../components/Markdown";
+import { SourceCode } from "../components/SourceCode";
 import { Card, ErrorBox, Notice, Spinner, buttonCls } from "../components/ui";
 import { linkifyMarkdown, type LinkTarget } from "../utils/linkify";
 import { shortName } from "../utils/entityStyle";
 
+// Templates, not demo questions: clicking one fills the box so the user can put in
+// a real class/method name before sending.
 const EXAMPLES = [
-  "Who calls CasingService.processClaims?",
-  "How is discharge date calculated?",
-  "What does ClaimService.processClaim eventually call?",
-  "What are the business rules in processClaims?",
-  "What is the impact of changing ClaimDataDTO?",
+  "Explain ClassName.methodName",
+  "What are the business rules in ClassName.methodName?",
+  "Who calls ClassName.methodName?",
+  "What does ClassName.methodName eventually call?",
+  "What is the impact of changing ClassName?",
+  "Where is <concept, e.g. discharge date> calculated?",
 ];
 
 function linkTargets(r: AskResponse): LinkTarget[] {
@@ -77,6 +81,15 @@ function Answer({ r }: { r: AskResponse }) {
       )}
       {r.llm_error && <Notice tone="warn">Natural-language explanation unavailable: {r.llm_error}</Notice>}
       {r.warnings.map((w) => <Notice key={w} tone="warn">{w}</Notice>)}
+
+      {r.source && (
+        <details className="rounded-lg border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+          <summary className="cursor-pointer px-4 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Source code ({r.source.end_line - r.source.start_line + 1} lines, {r.source.comments.length} comments)
+          </summary>
+          <div className="px-4 pb-4"><SourceCode source={r.source} /></div>
+        </details>
+      )}
 
       {r.flow && r.flow.nodes.length > 0 && (
         <Card title={`Flow preview — ${r.flow.title} (${r.flow.availability})`}>
@@ -157,7 +170,7 @@ export function AskPage() {
         {turns.length === 0 && (
           <div className="flex flex-wrap gap-2 pt-2">
             {EXAMPLES.map((ex) => (
-              <button key={ex} type="button" onClick={() => submit(ex)}
+              <button key={ex} type="button" onClick={() => setQuestion(ex)}
                 className="rounded-full border border-slate-300 px-3 py-1 text-xs text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">
                 {ex}
               </button>

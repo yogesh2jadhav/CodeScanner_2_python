@@ -51,7 +51,7 @@ def create_llm_provider(cfg: LLMSettings) -> LLMProvider:
     if cfg.provider == "ollama":
         from codeknowledge.llm.ollama import OllamaProvider
 
-        return OllamaProvider(cfg.base_url, cfg.model, cfg.temperature, cfg.timeout_seconds)
+        return OllamaProvider(cfg.base_url, cfg.model, cfg.temperature, cfg.timeout_seconds, cfg.num_ctx)
     if cfg.provider == "mock":
         return MockLLMProvider(cfg.model)
     raise ValueError(f"Unknown LLM provider: {cfg.provider}")

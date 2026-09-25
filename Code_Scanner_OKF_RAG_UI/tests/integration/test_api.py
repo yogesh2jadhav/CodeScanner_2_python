@@ -190,3 +190,18 @@ def test_java2okf_bundle_graph_hides_external_by_default(tmp_path):
         assert any(e["status"] == "external" and e["other"]["type"] == "external" for e in rels["outgoing"])
         flow = c.get("/api/flow/java-method:com.example.OrderService.placeOrder(com.example.Customer,double)").json()
         assert flow["availability"] == "call_sequence" and "line 22" in flow["text"]
+
+
+def test_entity_source_endpoint(tmp_path):
+    from tests.conftest import FIXTURES
+
+    settings = make_settings(tmp_path, FIXTURES / "java2okf-sample")
+    m = "java-method:com.example.OrderService.placeOrder(com.example.Customer,double)"
+    with TestClient(create_app(settings, llm=MockLLMProvider())) as c:
+        assert c.get(f"/api/entities/{m}/source").json()["available"] is False
+    settings.source.root_dir = str(FIXTURES / "java2okf-source")
+    with TestClient(create_app(settings, llm=MockLLMProvider())) as c:
+        body = c.get(f"/api/entities/{m}/source").json()
+        assert body["available"] and body["start_line"] == 17 and body["end_line"] == 24
+        assert body["conditions"][0]["expression"] == "amount <= 0"
+        assert c.get("/api/status").json()["source"]["enabled"] is True

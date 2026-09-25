@@ -21,6 +21,7 @@ from codeknowledge.retrieval.embeddings import EmbeddingUnavailableError, create
 from codeknowledge.retrieval.hybrid import HybridRetriever
 from codeknowledge.retrieval.semantic import SemanticIndex, SemanticUnavailableError
 from codeknowledge.retrieval.symbol import SymbolIndex
+from codeknowledge.source.reader import SourceReader
 from codeknowledge.utils.logging import get_logger
 from codeknowledge.utils.timing import Timings, timed
 
@@ -66,6 +67,10 @@ class KnowledgeBase:
         self.retriever: HybridRetriever | None = None
         self.traversal: GraphTraversal | None = None
         self.flows: FlowBuilder | None = None
+        self.source = SourceReader(settings.source.root_dir, settings.source.max_lines)
+        if settings.source.root_dir and not self.source.enabled:
+            logger.warning("source.root_dir does not exist: %s (source-based explanations disabled)",
+                           settings.source.root_dir)
 
     # ------------------------------------------------------------------ loading
     def load(self, rebuild: bool = False, rebuild_vectors: bool | None = None, progress=None,

@@ -11,6 +11,11 @@ def tree(svc: ExplorerService = Depends(explorer)) -> list[dict]:
     return svc.tree()
 
 
+@router.get("/api/entities/{entity_id:path}/source")
+def source(entity_id: str, svc: ExplorerService = Depends(explorer)) -> dict:
+    return svc.source(entity_id)
+
+
 @router.get("/api/entities/{entity_id:path}/relationships")
 def relationships(entity_id: str, svc: ExplorerService = Depends(explorer)) -> dict:
     return svc.relationships(entity_id)

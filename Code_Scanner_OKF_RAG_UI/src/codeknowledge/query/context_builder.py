@@ -40,6 +40,16 @@ class SourceDocument(BaseModel):
     excerpt: str
 
 
+class SourceCode(BaseModel):
+    entity_id: str
+    file: str
+    start_line: int
+    end_line: int
+    code: str  # line-numbered
+    comments: list[str] = Field(default_factory=list)
+    conditions: list[str] = Field(default_factory=list)
+
+
 class StructuredContext(BaseModel):
     target: str | None
     question: str
@@ -51,6 +61,7 @@ class StructuredContext(BaseModel):
     facts: list[str] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
     source_documents: list[SourceDocument] = Field(default_factory=list)
+    source_code: list[SourceCode] = Field(default_factory=list)
     truncated: bool = False
 
     def to_prompt_json(self) -> str:
@@ -79,6 +90,7 @@ class ContextBuilder:
     flows: list[Flow] = field(default_factory=list)
     rules: list[dict] = field(default_factory=list)
     facts: list[str] = field(default_factory=list)
+    source_code: list[SourceCode] = field(default_factory=list)
 
     def add_entity(self, entity_id: str, score: float, origin: str, reason: str) -> None:
         """Duplicate removal: keep the best (priority, score) occurrence of each entity."""
@@ -103,7 +115,11 @@ class ContextBuilder:
 
     def build(self, question: str, category: str, target: str | None) -> StructuredContext:
         ctx = StructuredContext(target=target, question=question, category=category,
-                                relationships=list(self.relationships), rules=list(self.rules), facts=list(self.facts))
+                                relationships=list(self.relationships), rules=list(self.rules), facts=list(self.facts),
+                                source_code=list(self.source_code))
+        # With real source present, OKF body excerpts of other entities add little and
+        # would compete with the code for the token budget; keep entities' summaries only.
+        include_excerpts = not self.source_code
         for f in self.flows:
             head = f"Flow of {f.title} (availability: {f.availability})"
             body = f.render_text() if f.nodes else "; ".join(f.notes)
@@ -126,7 +142,7 @@ class ContextBuilder:
             ctx.evidence.append(Evidence(entity_id=doc.id, title=doc.display_name(), type=doc.type.value,
                                          document=doc.path, source=doc.source_file, source_line=doc.source_line,
                                          reason=cand.reason))
-            excerpt = doc.content[:EXCERPT_CHARS]
+            excerpt = doc.content[:EXCERPT_CHARS] if include_excerpts else ""
             if excerpt and len(ctx.to_prompt_json()) + len(excerpt) < budget_chars:
                 ctx.source_documents.append(SourceDocument(entity_id=doc.id, document=doc.path, excerpt=excerpt))
             elif excerpt:

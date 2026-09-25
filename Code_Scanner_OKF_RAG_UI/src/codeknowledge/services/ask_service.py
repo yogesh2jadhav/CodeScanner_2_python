@@ -14,16 +14,17 @@ from codeknowledge.flow.path import Flow
 from codeknowledge.graph.traversal import TraversalResult
 from codeknowledge.llm.prompts import SYSTEM_PROMPT, build_prompt
 from codeknowledge.llm.provider import LLMProvider, LLMUnavailableError
-from codeknowledge.models.answers import AskRequest, AskResponse, Fact, RelationshipView
+from codeknowledge.models.answers import AskRequest, AskResponse, Fact, RelationshipView, SourceView
 from codeknowledge.models.entities import EntityType
 from codeknowledge.models.query import QueryCategory as C
 from codeknowledge.models.query import SearchRequest
 from codeknowledge.query.classifier import QueryClassifier
-from codeknowledge.query.context_builder import ContextBuilder
+from codeknowledge.query.context_builder import ContextBuilder, SourceCode
 from codeknowledge.query.planner import QueryPlanner, StepType
 from codeknowledge.retrieval.hybrid import entity_summary
 from codeknowledge.services.cache_service import AnswerCache, cache_key
 from codeknowledge.services.indexing_service import KnowledgeBase
+from codeknowledge.source.reader import extract_comments, extract_conditions
 from codeknowledge.utils.ids import new_request_id
 from codeknowledge.utils.logging import get_logger, request_id_var
 from codeknowledge.utils.timing import Timings, timed
@@ -33,6 +34,8 @@ logger = get_logger("AskService")
 _FROM_TO_RE = re.compile(r"\bfrom\s+`?([\w.$#()]+)`?\s+to\s+`?([\w.$#()]+)`?", re.IGNORECASE)
 _BETWEEN_RE = re.compile(r"\bbetween\s+`?([\w.$#()]+)`?\s+and\s+`?([\w.$#()]+)`?", re.IGNORECASE)
 MAX_FLOW_METHODS = 3
+WALKTHROUGH_CATEGORIES = {C.FUNCTIONAL_EXPLANATION, C.FLOW, C.BUSINESS_RULE, C.GENERAL, C.METHOD_LOOKUP,
+                          C.SEMANTIC_SEARCH}
 FLOW_BONUS = 0.08
 CALLS_BONUS = 0.04
 MAX_LISTED = 25
@@ -188,17 +191,23 @@ class AskService:
             elif primary:
                 lines += self._neighbourhood(primary, ctxb, facts)
 
+        # ---- real source code + developer comments (when source.root_dir is configured)
+        source_view: SourceView | None = None
+        if primary and cat not in (C.CALLERS, C.CALLEES, C.DEPENDENCIES, C.IMPACT_ANALYSIS, C.PATH, C.ARCHITECTURE):
+            with timed(logger, "source_read", timings):
+                source_view = self._source_for(primary, ctxb, facts, lines, cat)
+
         # ---- flow / rules
         if primary and plan.has(StepType.FLOW):
             with timed(logger, "flow_build", timings):
-                flow = self._flow_for(primary, ctxb, facts, lines)
+                flow = self._flow_for(primary, ctxb, facts, lines, quiet_if_unavailable=source_view is not None)
             if flow and plan.has(StepType.RULES):
                 rules = extract_rules(flow)
                 ctxb.rules = [r.model_dump() for r in rules]
                 for r in rules:
                     claim = f"IF {r.condition} THEN {', '.join(r.then) or '(nothing)'} ELSE {', '.join(r.otherwise) or '(nothing)'}"
                     facts.append(Fact(claim=claim, evidence=[r.entity_id]))
-                if not rules:
+                if not rules and not (source_view and source_view.conditions):
                     lines.append("No explicit conditional logic is recorded for this entity in the OKF bundle.")
 
         ctxb.facts = [f.claim for f in facts]
@@ -216,7 +225,10 @@ class AskService:
                 logger.info("LLM_STARTED provider=%s model=%s", self.llm.name, self.llm.model)
                 try:
                     with timed(logger, "llm", timings):
-                        interpretation = self.llm.generate(build_prompt(question, ctx, plan.prompt_kind), SYSTEM_PROMPT)
+                        # With the real code available, explain it block by block instead of
+                        # reasoning from call lists alone.
+                        kind = "code_walkthrough" if (source_view and cat in WALKTHROUGH_CATEGORIES) else plan.prompt_kind
+                        interpretation = self.llm.generate(build_prompt(question, ctx, kind), SYSTEM_PROMPT)
                     llm_used = True
                     logger.info("LLM_COMPLETED chars=%d", len(interpretation))
                 except LLMUnavailableError as exc:
@@ -238,7 +250,7 @@ class AskService:
             classification_method=cls.method, plan=plan.describe(), target=primary, answer=answer, facts=facts,
             interpretation=interpretation, evidence=evidence,
             related_entities=[entity_summary(kb.repo, kb.graph, e.id) for e in ctx.entities if e.id != primary][:MAX_LISTED],
-            relationships=ctxb.relationships[:200], paths=paths, flow=flow, llm_used=llm_used,
+            relationships=ctxb.relationships[:200], paths=paths, flow=flow, source=source_view, llm_used=llm_used,
             llm_model=self.llm.model if (self.llm and llm_used) else None, llm_error=llm_error,
             warnings=warnings, timings_ms=dict(timings), knowledge_base_version=kb.repo.bundle_hash[:12],
         )
@@ -375,7 +387,49 @@ class AskService:
             out.append(f"- {h.entity.title} ({h.entity.type.value}, score {h.score:.2f}){loc}")
         return out
 
-    def _flow_for(self, primary, ctxb, facts, lines) -> Flow | None:
+    def _source_for(self, primary, ctxb, facts, lines, cat) -> SourceView | None:
+        """Attach the method's code; comments and conditions become deterministic facts."""
+        doc = self.kb.repo.get(primary)
+        if doc is None or doc.type != EntityType.METHOD or not self.kb.source.enabled:
+            return None
+        snippet = self.kb.source.snippet(doc)
+        if snippet is None:
+            lines.append(f"_Source for {doc.display_name()} not found under source.root_dir "
+                         f"({doc.source_file})._")
+            return None
+        comments = extract_comments(snippet)
+        conditions = extract_conditions(snippet)
+        view = SourceView(
+            entity_id=primary, file=snippet.file, start_line=snippet.start_line, decl_line=snippet.decl_line,
+            end_line=snippet.end_line, code=snippet.text, truncated=snippet.truncated, notes=snippet.notes,
+            comments=[{"start_line": c.start_line, "end_line": c.end_line, "kind": c.kind, "text": c.text}
+                      for c in comments],
+            conditions=[{"line": c.line, "kind": c.kind, "expression": c.expression} for c in conditions])
+        ctxb.source_code.append(SourceCode(
+            entity_id=primary, file=snippet.file, start_line=snippet.start_line, end_line=snippet.end_line,
+            code=snippet.numbered(),
+            comments=[f"L{c.start_line}-L{c.end_line}: {c.text}" for c in comments],
+            conditions=[f"L{c.line} {c.kind}: {c.expression}" for c in conditions]))
+
+        name = doc.display_name()
+        lines.append(f"Source: {snippet.file} lines {snippet.start_line}-{snippet.end_line}")
+        lines.extend(f"_Note: {n}_" for n in snippet.notes)
+        if comments:
+            lines.append(f"Developer comments in {name} (verbatim from source):")
+            for c in comments:
+                loc = f"L{c.start_line}" + (f"-L{c.end_line}" if c.end_line != c.start_line else "")
+                lines.append(f"- **{loc}**: " + " ".join(c.text.split()))
+        else:
+            lines.append(f"{name} has no comments in its source.")
+        if conditions:
+            lines.append("Conditions and branches in the code:")
+            for c in conditions:
+                lines.append(f"- **L{c.line}** {c.kind}: `{c.expression}`")
+                if cat == C.BUSINESS_RULE:
+                    facts.append(Fact(claim=f"L{c.line} {c.kind}: {c.expression}", evidence=[primary]))
+        return view
+
+    def _flow_for(self, primary, ctxb, facts, lines, quiet_if_unavailable: bool = False) -> Flow | None:
         fb = self.kb.flows
         doc = self.kb.repo.get(primary)
         candidates = [primary]
@@ -391,6 +445,8 @@ class AskService:
                 continue
             first = first or f
             ctxb.add_flow(f)
+            if quiet_if_unavailable and f.availability == "unavailable":
+                continue  # the source code section already shows what the method does
             lines.append(f"Flow of {f.title} (availability: {f.availability}):")
             if f.nodes:
                 lines.append("```text\n" + f.render_text() + "\n```")

@@ -24,4 +24,5 @@ def status(request: Request, kb: KnowledgeBase = Depends(get_kb)) -> dict:
         "llm": {"provider": getattr(llm, "name", None), "model": getattr(llm, "model", None),
                 "available": bool(llm and llm.is_available())},
         "embedding": {"provider": kb.settings.embedding.provider, "model": kb.settings.embedding.model},
+        "source": {"enabled": kb.source.enabled},
     }

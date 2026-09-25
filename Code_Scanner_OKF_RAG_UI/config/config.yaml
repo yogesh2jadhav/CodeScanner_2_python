@@ -26,7 +26,17 @@ llm:
   base_url: http://localhost:11434
   model: qwen3:8b
   temperature: 0.1
-  timeout_seconds: 120
+  # Explaining a long method on a CPU-only machine can take several minutes.
+  timeout_seconds: 600
+  # Context window passed to Ollama (its default truncates long prompts silently).
+  num_ctx: 16384
+
+source:
+  # Root folder of the Java project that Java2OKF analysed (its project.sourceRoot).
+  # With it, answers include the method's real code and developer comments.
+  # Windows example: root_dir: 'C:\Users\me\projects\my-java-app'
+  root_dir: null
+  max_lines: 800
 
 embedding:
   provider: ollama
@@ -41,7 +51,7 @@ retrieval:
   symbol_top_k: 10
   graph_max_depth: 3
   max_context_documents: 20
-  max_context_tokens: 6000
+  max_context_tokens: 12000
   classifier_confidence_threshold: 0.6
 
 cache:

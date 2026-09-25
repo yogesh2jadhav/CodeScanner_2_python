@@ -1,5 +1,5 @@
 import type {
-  AskResponse, EntityDetail, EntityRelationships, FlowResponse, SearchMode, SearchResponse,
+  AskResponse, EntityDetail, EntityRelationships, FlowResponse, SearchMode, SearchResponse, SourceResponse,
   StatusResponse, SubGraphResponse, TreeNode,
 } from "../types/api";
 
@@ -48,5 +48,6 @@ export const api = {
     if (types.length) q.set("types", types.join(","));
     return request<SubGraphResponse>(`/api/graph/subgraph/${id(entityId)}?${q}`);
   },
+  source: (entityId: string) => request<SourceResponse>(`/api/entities/${id(entityId)}/source`),
   flow: (entityId: string) => request<FlowResponse>(`/api/flow/${id(entityId)}`),
 };

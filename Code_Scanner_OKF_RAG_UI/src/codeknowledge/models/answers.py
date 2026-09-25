@@ -34,6 +34,21 @@ class Fact(BaseModel):
     evidence: list[str] = Field(default_factory=list)  # entity ids
 
 
+class SourceView(BaseModel):
+    """The target's real source code (read from source.root_dir), with extracted comments/conditions."""
+
+    entity_id: str
+    file: str
+    start_line: int
+    decl_line: int
+    end_line: int
+    code: str
+    comments: list[dict] = Field(default_factory=list)  # {start_line, end_line, kind, text}
+    conditions: list[dict] = Field(default_factory=list)  # {line, kind, expression}
+    notes: list[str] = Field(default_factory=list)
+    truncated: bool = False
+
+
 class RelationshipView(BaseModel):
     source: str
     target: str
@@ -57,6 +72,7 @@ class AskResponse(BaseModel):
     relationships: list[RelationshipView] = Field(default_factory=list)
     paths: list[list[str]] = Field(default_factory=list)
     flow: Flow | None = None
+    source: SourceView | None = None
     llm_used: bool = False
     llm_model: str | None = None
     llm_error: str | None = None

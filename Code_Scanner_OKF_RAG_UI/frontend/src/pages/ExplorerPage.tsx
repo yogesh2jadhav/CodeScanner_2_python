@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../services/api";
-import type { EntityDetail, EntityRelationships, TreeNode } from "../types/api";
+import type { EntityDetail, EntityRelationships, SourceResponse, SourceView, TreeNode } from "../types/api";
 import { Markdown } from "../components/Markdown";
 import { RelationshipList } from "../components/RelationshipList";
+import { SourceCode } from "../components/SourceCode";
 import { TypeBadge } from "../components/TypeBadge";
 import { ErrorBox, Spinner, ghostButtonCls, inputCls } from "../components/ui";
 
@@ -52,6 +53,7 @@ export function ExplorerPage() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [detail, setDetail] = useState<EntityDetail | null>(null);
   const [rels, setRels] = useState<EntityRelationships | null>(null);
+  const [source, setSource] = useState<SourceResponse | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
@@ -60,7 +62,8 @@ export function ExplorerPage() {
 
   useEffect(() => {
     if (!selected) return;
-    setDetail(null); setRels(null);
+    setDetail(null); setRels(null); setSource(null);
+    api.source(selected).then(setSource).catch(() => setSource(null));
     Promise.all([api.entity(selected), api.relationships(selected)])
       .then(([d, r]) => {
         setDetail(d); setRels(r);
@@ -111,6 +114,12 @@ export function ExplorerPage() {
                 {detail.flow_available && <button className={ghostButtonCls} onClick={() => navigate(`/flow?id=${encodeURIComponent(e.id)}`)}>Flow</button>}
               </div>
             </div>
+            {source?.available && (
+              <div className="border-t border-slate-200 pt-4 dark:border-slate-800">
+                <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Source</h2>
+                <SourceCode source={source as SourceView} maxHeight={560} />
+              </div>
+            )}
             {detail.content ? <Markdown className="border-t border-slate-200 pt-4 dark:border-slate-800" linkTargets={detail.link_targets}>{detail.content}</Markdown>
               : <p className="text-sm text-slate-500">No document content.</p>}
           </div>

@@ -57,6 +57,21 @@ describe("AskPage", () => {
     expect(within(dialog).getByText("CALLS (1)")).toBeInTheDocument();
   });
 
+  it("renders the source code with comment and condition lines", async () => {
+    mockApi({ "POST /api/ask": { ...answer, source: {
+      file: "src/A.java", start_line: 10, decl_line: 11, end_line: 14, truncated: false, notes: [],
+      code: "// set flag\nvoid run() {\n  if (enabled) { flag = 1; }\n}",
+      comments: [{ start_line: 10, end_line: 10, kind: "line", text: "set flag" }],
+      conditions: [{ line: 12, kind: "if", expression: "enabled" }] } } });
+    renderWithProviders(<AskPage />);
+    await userEvent.type(screen.getByLabelText("Question"), "Explain A.run");
+    await userEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect(await screen.findByText("Source code (5 lines, 1 comments)")).toBeInTheDocument();
+    const code = screen.getByTestId("source-code");
+    expect(within(code).getByText("12")).toBeInTheDocument();
+    expect(code).toHaveTextContent("if (enabled) { flag = 1; }");
+  });
+
   it("shows LLM errors without hiding deterministic facts", async () => {
     mockApi({ "POST /api/ask": { ...answer, interpretation: null, llm_used: false, llm_error: "LLM unavailable: down" } });
     renderWithProviders(<AskPage />);

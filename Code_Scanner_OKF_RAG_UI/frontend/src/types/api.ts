@@ -86,6 +86,27 @@ export interface RelationshipView {
   status: string;
 }
 
+export interface SourceComment { start_line: number; end_line: number; kind: string; text: string }
+export interface SourceCondition { line: number; kind: string; expression: string }
+
+export interface SourceView {
+  entity_id?: string;
+  file: string;
+  start_line: number;
+  decl_line: number;
+  end_line: number;
+  code: string;
+  comments: SourceComment[];
+  conditions: SourceCondition[];
+  notes: string[];
+  truncated: boolean;
+}
+
+export interface SourceResponse extends Partial<SourceView> {
+  available: boolean;
+  reason?: string;
+}
+
 export interface AskResponse {
   request_id: string;
   question: string;
@@ -102,6 +123,7 @@ export interface AskResponse {
   relationships: RelationshipView[];
   paths: string[][];
   flow?: Flow | null;
+  source?: SourceView | null;
   llm_used: boolean;
   llm_model?: string | null;
   llm_error?: string | null;
@@ -181,4 +203,5 @@ export interface StatusResponse {
   };
   llm: { provider: string | null; model: string | null; available: boolean };
   embedding: { provider: string; model: string };
+  source?: { enabled: boolean };
 }

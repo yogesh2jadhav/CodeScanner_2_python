@@ -74,6 +74,27 @@ class ExplorerService:
                 out[href] = target.id
         return out
 
+    def source(self, entity_id: str) -> dict:
+        """Real source for a method/type, read from source.root_dir (read-only)."""
+        from codeknowledge.source.reader import extract_comments, extract_conditions
+
+        self.kb.require_ready()
+        doc = self.kb.repo.get(entity_id)
+        if doc is None:
+            raise EntityNotFoundError(entity_id)
+        if not self.kb.source.enabled:
+            return {"available": False, "reason": "source.root_dir is not configured (or does not exist)."}
+        snippet = self.kb.source.snippet(doc)
+        if snippet is None:
+            return {"available": False, "reason": f"Source file not found under source.root_dir: {doc.source_file}"}
+        return {
+            "available": True, "file": snippet.file, "start_line": snippet.start_line,
+            "decl_line": snippet.decl_line, "end_line": snippet.end_line, "code": snippet.text,
+            "notes": snippet.notes, "truncated": snippet.truncated,
+            "comments": [c.__dict__ for c in extract_comments(snippet)],
+            "conditions": [c.__dict__ for c in extract_conditions(snippet)],
+        }
+
     def relationships(self, entity_id: str) -> dict:
         self.kb.require_ready()
         g = self.kb.graph

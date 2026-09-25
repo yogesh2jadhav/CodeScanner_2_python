@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../services/api";
-import type { EntityDetail, EntityRelationships, FlowResponse } from "../types/api";
+import type { EntityDetail, EntityRelationships, FlowResponse, SourceResponse, SourceView } from "../types/api";
 import { useEntityPanel } from "./EntityPanelContext";
 import { EntityLink } from "./EntityLink";
 import { FlowDiagram } from "./FlowDiagram";
 import { Markdown } from "./Markdown";
 import { RelationshipList } from "./RelationshipList";
+import { SourceCode } from "./SourceCode";
 import { TypeBadge } from "./TypeBadge";
 import { ErrorBox, Notice, Spinner, ghostButtonCls } from "./ui";
 
-type Tab = "overview" | "document" | "relationships" | "flow";
+type Tab = "overview" | "source" | "document" | "relationships" | "flow";
 
 /** Slide-over with Class / Method / Source / Relationships / Flow for any entity. */
 export function EntityPanel() {
@@ -20,12 +21,13 @@ export function EntityPanel() {
   const [detail, setDetail] = useState<EntityDetail | null>(null);
   const [rels, setRels] = useState<EntityRelationships | null>(null);
   const [flow, setFlow] = useState<FlowResponse | null>(null);
+  const [source, setSource] = useState<SourceResponse | null>(null);
   const [error, setError] = useState<unknown>(null);
 
   useEffect(() => {
     if (!entityId) return;
     let cancelled = false;
-    setDetail(null); setRels(null); setFlow(null); setError(null); setTab("overview");
+    setDetail(null); setRels(null); setFlow(null); setSource(null); setError(null); setTab("overview");
     Promise.all([api.entity(entityId), api.relationships(entityId)])
       .then(([d, r]) => { if (!cancelled) { setDetail(d); setRels(r); } })
       .catch((e) => { if (!cancelled) setError(e); });
@@ -34,7 +36,8 @@ export function EntityPanel() {
 
   useEffect(() => {
     if (tab === "flow" && entityId && !flow) api.flow(entityId).then(setFlow).catch(setError);
-  }, [tab, entityId, flow]);
+    if (tab === "source" && entityId && !source) api.source(entityId).then(setSource).catch(setError);
+  }, [tab, entityId, flow, source]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
@@ -67,7 +70,7 @@ export function EntityPanel() {
             <button className={ghostButtonCls} onClick={() => go("/flow")}>Open in Flow</button>
           </div>
           <nav className="mt-3 flex gap-1 text-sm" role="tablist">
-            {(["overview", "document", "relationships", "flow"] as Tab[]).map((t) => (
+            {(["overview", "source", "document", "relationships", "flow"] as Tab[]).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)}
                 className={`rounded-md px-3 py-1 capitalize ${tab === t ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}>
                 {t}
@@ -97,6 +100,10 @@ export function EntityPanel() {
           )}
           {detail && tab === "document" && (detail.content ? <Markdown linkTargets={detail.link_targets}>{detail.content}</Markdown> : <p className="text-sm text-slate-500">No document content.</p>)}
           {rels && tab === "relationships" && <RelationshipList rels={rels} />}
+          {tab === "source" && !source && !error && <Spinner />}
+          {tab === "source" && source && (source.available
+            ? <SourceCode source={source as SourceView} maxHeight={640} />
+            : <Notice>{source.reason}</Notice>)}
           {tab === "flow" && !flow && !error && <Spinner />}
           {tab === "flow" && flow && (
             <div className="space-y-3">

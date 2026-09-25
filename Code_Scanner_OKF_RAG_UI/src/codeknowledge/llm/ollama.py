@@ -16,7 +16,8 @@ _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 class OllamaProvider(LLMProvider):
     name = "ollama"
 
-    def __init__(self, base_url: str, model: str, temperature: float, timeout: float):
+    def __init__(self, base_url: str, model: str, temperature: float, timeout: float, num_ctx: int | None = None):
+        self.num_ctx = num_ctx
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.temperature = temperature
@@ -40,12 +41,18 @@ class OllamaProvider(LLMProvider):
             # Reasoning models (qwen3) would otherwise spend the budget "thinking";
             # we want a direct, evidence-bound answer.
             "think": False,
-            "options": {"temperature": self.temperature},
+            "options": {"temperature": self.temperature, **({"num_ctx": self.num_ctx} if self.num_ctx else {})},
         }
         try:
             r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
             r.raise_for_status()
             content = r.json()["message"]["content"]
+        except httpx.TimeoutException as exc:
+            raise LLMUnavailableError(
+                f"Ollama did not answer within {self.timeout}s (model={self.model}). Increase llm.timeout_seconds "
+                "or use a smaller/faster model.") from exc
+        except httpx.ConnectError as exc:
+            raise LLMUnavailableError(f"Cannot reach Ollama at {self.base_url}. Start Ollama.") from exc
         except (httpx.HTTPError, KeyError, ValueError) as exc:
             raise LLMUnavailableError(f"Ollama request failed (model={self.model}): {exc}") from exc
         return _THINK_RE.sub("", content).strip()

@@ -14,9 +14,11 @@ Rules:
 - Use ONLY the supplied context (entities, relationships, flow, rules, facts, source_documents).
 - Never invent classes, methods, relationships, calls or business requirements that are not in the context.
 - Reference entities by their id or title in backticks, e.g. `CasingService.processClaims`.
-- Structure the answer with two sections:
-  "### Verified facts" (statements directly supported by relationships/flow/facts) and
+- Unless the task gives another structure, use two sections:
+  "### Verified facts" (statements directly supported by relationships/flow/facts/source code) and
   "### Interpretation" (your inferred meaning, phrased as 'appears to' / 'likely').
+- When `source_code` is present it is the method's real code with line numbers and the developers'
+  comments; it is the primary evidence. Cite line numbers like (L120-L134).
 - If the context is insufficient, say what is missing instead of guessing.
 - Be concise."""
 
@@ -39,6 +41,31 @@ Use the 'rules' section as the authoritative list; do not add rules that are not
     "architecture": """Describe the architecture: packages, main classes, their responsibilities and how they relate
 (containment, inheritance, dependencies). Use only the supplied relationships.""",
     "general": """Answer the question using only the supplied context.""",
+    "code_walkthrough": """Explain the method in `source_code` step by step, in source order, for a developer who
+has not read it. Structure:
+
+### Purpose
+Two or three sentences: what the method takes, what it produces, and its role (use the Javadoc if present).
+
+### Step-by-step
+A numbered list, one item per logical block (a statement group, stream pipeline, if/else, loop, try/catch).
+Each item starts with the line range in bold, e.g. **L120-L134 - Set discharge date when missing**. Then:
+- If the block has a developer comment, restate what it says in clear prose (do not copy commented-out code),
+  and add anything the code does that the comment leaves out or contradicts.
+- If the block has no comment, explain it in the same style: what is filtered/grouped/computed, which fields
+  are set, and under which condition.
+- Name conditions and values exactly (e.g. "only when isNDDEnabled is true, nddFlag is set to 1").
+- For calls to other methods, say what they are used for; if the context does not describe them, say only
+  what is passed in and what is done with the result.
+
+### Business rules
+IF <condition> THEN <outcome> [ELSE <outcome>] (Lx), one per line, taken only from the code.
+
+### Notes
+Anything suspicious or worth knowing (debug prints, hard-coded ids, broad exception handling, error-level
+logging used for timing), only if present in the code.
+
+Do not invent business meaning that the code and comments do not support.""",
 }
 
 

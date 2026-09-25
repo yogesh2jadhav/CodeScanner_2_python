@@ -106,13 +106,16 @@ Configuration lives in `config/config.yaml`. Environment variables override it u
 | `llm.provider` | `ollama` | `CODEKNOWLEDGE_LLM_PROVIDER` | `ollama` or `mock` |
 | `llm.base_url` | `http://localhost:11434` | `CODEKNOWLEDGE_LLM_BASE_URL` | Ollama URL |
 | `llm.model` | `qwen3:8b` | `CODEKNOWLEDGE_LLM_MODEL` | Chat model |
-| `llm.temperature` / `llm.timeout_seconds` | `0.1` / `120` | `CODEKNOWLEDGE_LLM_TEMPERATURE` / `…_TIMEOUT_SECONDS` | Generation settings |
+| `llm.temperature` / `llm.timeout_seconds` | `0.1` / `600` | `CODEKNOWLEDGE_LLM_TEMPERATURE` / `…_TIMEOUT_SECONDS` | Generation settings |
+| `llm.num_ctx` | `16384` | `CODEKNOWLEDGE_LLM_NUM_CTX` | Ollama context window (long methods need it) |
+| `source.root_dir` | none | `CODEKNOWLEDGE_SOURCE_ROOT_DIR` | Java project root, used to show and explain real code and comments |
+| `embedding.timeout_seconds` / `batch_size` | `300` / `16` | `CODEKNOWLEDGE_EMBEDDING_*` | Per-request timeout; timed-out batches are split and retried |
 | `embedding.provider` | `ollama` | `CODEKNOWLEDGE_EMBEDDING_PROVIDER` | `ollama` or `hash` (offline/test) |
 | `embedding.model` | `nomic-embed-text` | `CODEKNOWLEDGE_EMBEDDING_MODEL` | Embedding model |
 | `retrieval.semantic_top_k` | `10` | `CODEKNOWLEDGE_RETRIEVAL_SEMANTIC_TOP_K` | Default search size |
 | `retrieval.graph_max_depth` | `3` | `CODEKNOWLEDGE_RETRIEVAL_GRAPH_MAX_DEPTH` | Depth for transitive/impact questions |
 | `retrieval.max_context_documents` | `20` | `…_MAX_CONTEXT_DOCUMENTS` | Max entities sent to the LLM |
-| `retrieval.max_context_tokens` | `6000` | `…_MAX_CONTEXT_TOKENS` | Approximate LLM context budget |
+| `retrieval.max_context_tokens` | `12000` | `…_MAX_CONTEXT_TOKENS` | Approximate LLM context budget |
 | `retrieval.classifier_confidence_threshold` | `0.6` | `…_CLASSIFIER_CONFIDENCE_THRESHOLD` | Below this, the LLM classifies |
 | `cache.enabled` / `directory` / `ttl_seconds` | `true` / `./data/cache` / `86400` | `CODEKNOWLEDGE_CACHE_*` | Answer cache |
 | `logging.level` / `file` / `config_file` | `INFO` / `./logs/codeknowledge.log` / `./config/logging.yaml` | `CODEKNOWLEDGE_LOGGING_*` | Logging |
@@ -161,6 +164,32 @@ External nodes such as `java.lang.String` are **leaves**. Traversal, paths and g
 them. Without that, one shared JDK type would link every class in the project together. The Graph screen hides
 them by default; use "Show external" to see them. Java2OKF records no control flow, so the Flow view shows a
 method's calls in **source-line order** (`call_sequence`) and states that conditions and loops are unknown.
+
+### Source code and developer comments (`source.root_dir`)
+
+Java2OKF records structure (calls, types, line ranges) but not method bodies or comments. To get explanations
+that follow the code, point the app at the Java project that Java2OKF analysed:
+
+```yaml
+source:
+  root_dir: 'C:\Users\me\projects\my-java-app'   # Java2OKF project.sourceRoot
+```
+
+With it, "Explain X.method" and "What are the business rules in X.method?":
+
+- read the method from `resource` + `java.lines`, including the Javadoc and annotations above it. If the file
+  changed since generation, the declaration is re-located nearby and a note is shown.
+- show the **developer comments verbatim with line numbers**, and every condition (`if`, `.filter(...)`, loops,
+  `catch`), without needing the LLM.
+- ask the LLM for a **step-by-step walkthrough**: one item per code block, restating the comment where there is
+  one and writing an explanation in the same style where there isn't, then IF/THEN/ELSE business rules with line
+  references.
+
+Source is only read, never executed, and never outside `root_dir`. The Explorer and the entity panel ("source"
+tab) show the code too.
+
+For long methods the prompt is large. `llm.num_ctx` (default 16384) stops Ollama from silently truncating it, and
+`llm.timeout_seconds` (default 600) allows for slow CPU-only machines.
 
 A copy of the Java2OKF sample output is kept in `tests/fixtures/java2okf-sample/`. It is 31 documents and validates
 with 0 errors and 0 warnings.

@@ -46,7 +46,17 @@ class LLMSettings(BaseModel):
     base_url: str = "http://localhost:11434"
     model: str = "qwen3:8b"
     temperature: float = 0.1
-    timeout_seconds: float = 120
+    timeout_seconds: float = 600
+    # Ollama's default context window (2-4k tokens) silently truncates prompts that
+    # contain a long method body; set it explicitly.
+    num_ctx: int = 16384
+
+
+class SourceSettings(BaseModel):
+    # Root of the analysed Java project (Java2OKF `project.sourceRoot`); OKF `resource`
+    # paths are relative to it. None = source-based explanations are disabled.
+    root_dir: str | None = None
+    max_lines: int = 800
 
 
 class EmbeddingSettings(BaseModel):
@@ -62,7 +72,7 @@ class RetrievalSettings(BaseModel):
     symbol_top_k: int = 10
     graph_max_depth: int = 3
     max_context_documents: int = 20
-    max_context_tokens: int = 6000
+    max_context_tokens: int = 12000
     classifier_confidence_threshold: float = 0.6
 
 
@@ -84,6 +94,7 @@ class Settings(BaseModel):
     vector: VectorSettings = Field(default_factory=VectorSettings)
     graph: GraphSettings = Field(default_factory=GraphSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    source: SourceSettings = Field(default_factory=SourceSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)

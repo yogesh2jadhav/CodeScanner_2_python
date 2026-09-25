@@ -166,3 +166,46 @@ def test_abc_final_acceptance(abc):
     assert {"demo.A", "demo.B", "demo.C"} <= set(evidence)
     assert all(evidence[i].document for i in ("demo.A", "demo.B", "demo.C"))  # clickable (document known)
     assert not r.llm_used
+
+
+# ------------------------------------------------ real source (source.root_dir)
+
+@pytest.fixture(scope="module")
+def j2o_with_source(tmp_path_factory):
+    from tests.conftest import FIXTURES, make_settings
+    from codeknowledge.services.indexing_service import KnowledgeBase
+
+    s = make_settings(tmp_path_factory.mktemp("src"), FIXTURES / "java2okf-sample")
+    s.source.root_dir = str(FIXTURES / "java2okf-source")
+    kb = KnowledgeBase(s)
+    kb.load(rebuild=True, rebuild_vectors=True)
+    return kb
+
+
+def test_explain_method_uses_real_source(j2o_with_source):
+    llm = MockLLMProvider()
+    r = AskService(j2o_with_source, llm, None).ask(AskRequest(question="Explain OrderService.placeOrder"))
+    assert r.category == "FUNCTIONAL_EXPLANATION"
+    assert r.source and r.source.file == "src/main/java/com/example/OrderService.java"
+    assert (r.source.decl_line, r.source.end_line) == (17, 24)
+    assert "throw new IllegalArgumentException" in r.source.code
+    assert r.source.conditions[0] == {"line": 18, "kind": "if", "expression": "amount <= 0"}
+    assert "Source: src/main/java/com/example/OrderService.java lines 17-24" in r.answer
+    assert "**L18** if: `amount <= 0`" in r.answer
+    prompt, _ = llm.calls[0]
+    assert "### Step-by-step" in prompt and "source_code" in prompt
+    assert "18|         if (amount <= 0) {" in prompt
+
+
+def test_business_rules_from_source(j2o_with_source):
+    r = AskService(j2o_with_source, MockLLMProvider(), None).ask(
+        AskRequest(question="What are the business rules in OrderService.placeOrder?", use_llm=False))
+    assert r.category == "BUSINESS_RULE"
+    assert any(f.claim == "L18 if: amount <= 0" for f in r.facts)
+    assert "No explicit conditional logic" not in r.answer
+
+
+def test_structural_questions_do_not_attach_source(j2o_with_source):
+    r = AskService(j2o_with_source, MockLLMProvider(), None).ask(
+        AskRequest(question="Who calls OrderRepository.save?"))
+    assert r.source is None
